@@ -2,10 +2,10 @@ import json
 import re
 import subprocess
 import sys
-from pathlib import Path
-
+import time 
 import click
 import toml
+from pathlib import Path
 from packaging.version import parse
 
 MIN_UV_VERSION = "0.4.10"
@@ -162,6 +162,76 @@ def copy_template(
         sys.exit(1)
 
 
+def install_dependencies(path: Path) -> None:
+    """Install all project dependencies"""
+    try:
+        click.echo("Installing dependencies...")
+        subprocess.run(
+            ["uv", "sync", "--dev", "--all-extras"],
+            cwd=path,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except subprocess.CalledProcessError as e:
+        click.echo("❌ Error: Failed to install dependencies.", err=True)
+        click.echo(f"  Return code: {e.returncode}")
+        click.echo(f"  Stdout: {e.stdout}")
+        click.echo(f"  Stderr: {e.stderr}")
+        sys.exit(1)
+
+
+def start_server(path: Path, name: str) -> None:
+    """Start the MCP server with improved verification"""
+    click.echo(f"\nStarting {name} server...")
+    
+    try:
+        # Start server process with output capture
+        process = subprocess.Popen(
+            ["uv", "run", name],
+            cwd=path,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True
+        )
+        
+        # Wait briefly for startup
+        time.sleep(2)
+        
+        # Check initial status
+        if process.poll() is not None:
+            # Process ended - check if there was an error
+            stdout, stderr = process.communicate()
+            click.echo("❌ Server failed to start", err=True)
+            if stdout:
+                click.echo(f"Output: {stdout}", err=True)
+            if stderr:
+                click.echo(f"Error: {stderr}", err=True)
+            sys.exit(1)
+            
+        click.echo("✅ Server started successfully")
+        click.echo("\nServer endpoints (default):")
+        click.echo("  Health check: http://localhost:8000/health")
+        click.echo("  API docs: http://localhost:8000/docs")
+        
+        # Keep the process running and handle Ctrl+C
+        try:
+            process.wait()
+        except KeyboardInterrupt:
+            click.echo("\nStopping server...")
+            process.terminate()
+            try:
+                process.wait(timeout=5)  # Give it 5 seconds to shut down
+            except subprocess.TimeoutExpired:
+                click.echo("Server didn't shut down gracefully, forcing...", err=True)
+                process.kill()
+            click.echo("Server stopped.")
+            
+    except Exception as e:
+        click.echo(f"❌ Error: Failed to start server: {e}", err=True)
+        sys.exit(1)
+            
+
 def create_project(
     path: Path, name: str, description: str, version: str, use_claude: bool = True
 ) -> None:
@@ -187,6 +257,9 @@ def create_project(
 
     copy_template(path, name, description, version)
 
+    # Install dependencies
+    install_dependencies(path)
+    
     # Check if Claude.app is available
     if (
         use_claude
@@ -199,10 +272,15 @@ def create_project(
         update_claude_config(name, path)
 
     relpath = path.relative_to(Path.cwd())
-    click.echo(f"✅ Created project {name} in {relpath}")
-    click.echo("ℹ️ To install dependencies run:")
-    click.echo(f"   cd {relpath}")
-    click.echo("   uv sync --dev --all-extras")
+    click.echo(f"\n✅ Created project {name} in {relpath}")
+
+    # Ask if user wants to start the server
+    if click.confirm("\nWould you like to start the server now?", default=True):
+        start_server(path, name)
+    else:
+        click.echo(f"\nTo start the server later, run:")
+        click.echo(f"  cd {relpath}")
+        click.echo(f"  uv run {name}")
 
 
 def update_pyproject_settings(
@@ -282,12 +360,18 @@ def check_package_name(name: str) -> bool:
     default=True,
     help="Enable/disable Claude.app integration",
 )
+@click.option(
+    "--start/--no-start",
+    default=False,
+    help="Start the server after creation",
+)
 def main(
     path: Path | None,
     name: str | None,
     version: str | None,
     description: str | None,
     claudeapp: bool,
+    start: bool,
 ) -> int:
     """Create a new MCP server project"""
     ensure_uv_installed()
@@ -345,4 +429,11 @@ def main(
     create_project(project_path, name, description, version, claudeapp)
     update_pyproject_settings(project_path, version, description)
 
+    if start:
+        start_server(project_path, name)
+
     return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
