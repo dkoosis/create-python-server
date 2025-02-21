@@ -19,18 +19,18 @@ notes: dict[str, str] = {}
 
 # Create FastAPI app
 app = FastAPI(
-    title="{{ server_name }}",
-    version="{{ server_version }}",
-    description="{{ server_description }}"
+    title="TestC",
+    version="3",
+    description="C"
 )
 
 # Create MCP server
-mcp_server = Server("{{ server_name }}")
+mcp_server = Server("TestC")
 
 @app.get("/health")
 async def health_check():
     """Health check endpoint"""
-    return {"status": "healthy", "service": "{{ server_name }}"}
+    return {"status": "healthy", "service": "TestC"}
 
 @mcp_server.list_resources()
 async def handle_list_resources() -> list[types.Resource]:
@@ -151,8 +151,8 @@ async def run_mcp_server():
             read_stream,
             write_stream,
             InitializationOptions(
-                server_name="{{ server_name }}",
-                server_version="{{ server_version }}",
+                server_name="TestC",
+                server_version="3",
                 capabilities=mcp_server.get_capabilities(
                     notification_options=NotificationOptions(),
                     experimental_capabilities={},

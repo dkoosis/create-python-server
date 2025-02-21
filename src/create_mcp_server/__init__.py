@@ -231,56 +231,42 @@ def start_server(path: Path, name: str) -> None:
         click.echo(f"❌ Error: Failed to start server: {e}", err=True)
         sys.exit(1)
             
+def copy_template(path: Path, name: str, description: str, version: str = "0.1.0") -> None:
+    """Copy template files into src/<project_name>"""
+    template_dir = Path(__file__).parent / "template"
+    target_dir = get_package_directory(path)
 
-def create_project(
-    path: Path, name: str, description: str, version: str, use_claude: bool = True
-) -> None:
-    """Create a new project using uv"""
-    path.mkdir(parents=True, exist_ok=True)
+    from jinja2 import Environment, FileSystemLoader
+    env = Environment(loader=FileSystemLoader(str(template_dir)))
+
+    files = [
+        ("__init__.py.jinja2", "__init__.py", target_dir),
+        ("server.py.jinja2", "server.py", target_dir),
+        ("README.md.jinja2", "README.md", path),
+    ]
+
+    pyproject = PyProject(path / "pyproject.toml")
+    bin_name = pyproject.first_binary
+
+    template_vars = {
+        "binary_name": bin_name,
+        "server_name": name,
+        "server_version": version,
+        "server_description": description,
+        "server_directory": str(path.resolve()),
+    }
 
     try:
-        subprocess.run(
-            ["uv", "init", "--name", name, "--package", "--app", "--quiet"],
-            cwd=path,
-            check=True,
-        )
-    except subprocess.CalledProcessError:
-        click.echo("❌ Error: Failed to initialize project.", err=True)
+        for template_file, output_file, output_dir in files:
+            template = env.get_template(template_file)
+            rendered = template.render(**template_vars)
+
+            out_path = output_dir / output_file
+            out_path.write_text(rendered)
+
+    except Exception as e:
+        click.echo(f"❌ Error: Failed to template and write files: {e}", err=True)
         sys.exit(1)
-
-    # Add mcp dependency using uv add
-    try:
-        subprocess.run(["uv", "add", "mcp"], cwd=path, check=True)
-    except subprocess.CalledProcessError:
-        click.echo("❌ Error: Failed to add mcp dependency.", err=True)
-        sys.exit(1)
-
-    copy_template(path, name, description, version)
-
-    # Install dependencies
-    install_dependencies(path)
-    
-    # Check if Claude.app is available
-    if (
-        use_claude
-        and has_claude_app()
-        and click.confirm(
-            "\nClaude.app detected. Would you like to install the server into Claude.app now?",
-            default=True,
-        )
-    ):
-        update_claude_config(name, path)
-
-    relpath = path.relative_to(Path.cwd())
-    click.echo(f"\n✅ Created project {name} in {relpath}")
-
-    # Ask if user wants to start the server
-    if click.confirm("\nWould you like to start the server now?", default=True):
-        start_server(path, name)
-    else:
-        click.echo(f"\nTo start the server later, run:")
-        click.echo(f"  cd {relpath}")
-        click.echo(f"  uv run {name}")
 
 
 def update_pyproject_settings(
@@ -425,15 +411,107 @@ def main(
         return 1
 
     project_path = project_path.resolve()
+    # <-- Execution stops here
+    
+    try:
+        # Create the project
+        create_project(
+            path=project_path,
+            name=name,
+            description=description,
+            version=version,
+            use_claude=claudeapp
+        )
 
-    create_project(project_path, name, description, version, claudeapp)
-    update_pyproject_settings(project_path, version, description)
+        # Update project settings
+        update_pyproject_settings(
+            project_path=project_path,
+            version=version,
+            description=description,
+        )
 
-    if start:
-        start_server(project_path, name)
+        # Start the server if requested
+        if click.confirm("\nWould you like to start the server now?", default=True):
+            start_server(project_path, name)
+        else:
+            relpath = project_path.relative_to(Path.cwd())
+            click.echo(f"\nTo start the server later, run:")
+            click.echo(f"  cd {relpath}")
+            click.echo(f"  uv run {name}")
 
-    return 0
+        return 0
 
+    except Exception as e:
+        click.echo(f"❌ Error: Failed to create project: {e}", err=True)
+        return 1
+
+def create_project(
+    path: Path, 
+    name: str, 
+    description: str, 
+    version: str,
+    use_claude: bool = True
+) -> None:
+    """Create a new project using uv"""
+    path.mkdir(parents=True, exist_ok=True)
+
+    try:
+        subprocess.run(
+            ["uv", "init", "--name", name, "--package", "--app", "--quiet"],
+            cwd=path,
+            check=True,
+            capture_output=True,
+        )
+    except subprocess.CalledProcessError as e:
+        click.echo("❌ Error: Failed to initialize project.", err=True)
+        if e.stdout:
+            click.echo(f"Output: {e.stdout.decode()}", err=True)
+        if e.stderr:
+            click.echo(f"Error: {e.stderr.decode()}", err=True)
+        sys.exit(1)
+
+    # Add dependencies
+    try:
+        # Add MCP along with FastAPI and uvicorn for HTTP endpoints
+        subprocess.run(
+            ["uv", "add", "mcp", "fastapi", "uvicorn"],
+            cwd=path,
+            check=True,
+            capture_output=True,
+        )
+    except subprocess.CalledProcessError as e:
+        click.echo("❌ Error: Failed to add dependencies.", err=True)
+        if e.stdout:
+            click.echo(f"Output: {e.stdout.decode()}", err=True)
+        if e.stderr:
+            click.echo(f"Error: {e.stderr.decode()}", err=True)
+        sys.exit(1)
+
+    # Copy templates and install
+    copy_template(path, name, description, version)
+    install_dependencies(path)
+    
+    # Handle Claude.app integration
+    if (
+        use_claude
+        and has_claude_app()
+        and click.confirm(
+            "\nClaude.app detected. Would you like to install the server into Claude.app now?",
+            default=True,
+        )
+    ):
+        update_claude_config(name, path)
+
+    relpath = path.relative_to(Path.cwd())
+    click.echo(f"\n✅ Created project {name} in {relpath}")
+
+    # Ask if user wants to start the server
+    if click.confirm("\nWould you like to start the server now?", default=True):
+        start_server(path, name)
+    else:
+        click.echo(f"\nTo start the server later, run:")
+        click.echo(f"  cd {relpath}")
+        click.echo(f"  uv run {name}")
 
 if __name__ == "__main__":
     sys.exit(main())
