@@ -3,6 +3,7 @@ import re
 import subprocess
 import sys
 from pathlib import Path
+import shutil  # Import shutil
 
 import click
 import toml
@@ -90,7 +91,7 @@ def update_claude_config(project_name: str, project_path: Path) -> bool:
 
         if project_name in config["mcpServers"]:
             click.echo(
-                f"⚠️ Warning: {project_name} already exists in Claude.app configuration",
+                f"⚠️  Warning: {project_name} already exists in Claude.app configuration",
                 err=True,
             )
             click.echo(f"Settings file location: {config_file}", err=True)
@@ -162,6 +163,14 @@ def copy_template(
         sys.exit(1)
 
 
+def ensure_project_installed(path: Path) -> None:
+    """Install the project in editable mode"""
+    try:
+        subprocess.run(["uv", "pip", "install", "-e", "."], cwd=path, check=True)
+    except subprocess.CalledProcessError:
+        click.echo("❌ Error: Failed to install project.", err=True)
+        sys.exit(1)
+
 def create_project(
     path: Path, name: str, description: str, version: str, use_claude: bool = True
 ) -> None:
@@ -176,16 +185,21 @@ def create_project(
         )
     except subprocess.CalledProcessError:
         click.echo("❌ Error: Failed to initialize project.", err=True)
+        if path.exists():
+            shutil.rmtree(path)
         sys.exit(1)
 
-    # Add mcp dependency using uv add
+    # Add mcp dependency to pyproject.toml
     try:
         subprocess.run(["uv", "add", "mcp"], cwd=path, check=True)
     except subprocess.CalledProcessError:
         click.echo("❌ Error: Failed to add mcp dependency.", err=True)
+        if path.exists():
+            shutil.rmtree(path)
         sys.exit(1)
 
     copy_template(path, name, description, version)
+    ensure_project_installed(path)
 
     # Check if Claude.app is available
     if (
@@ -200,10 +214,9 @@ def create_project(
 
     relpath = path.relative_to(Path.cwd())
     click.echo(f"✅ Created project {name} in {relpath}")
-    click.echo("ℹ️ To install dependencies run:")
-    click.echo(f"   cd {relpath}")
-    click.echo("   uv sync --dev --all-extras")
-
+    click.echo("ℹ️  To install dependencies run:")
+    click.echo(f"    cd {relpath}")
+    click.echo("    uv sync --dev --all-extras")  # No longer needed.
 
 def update_pyproject_settings(
     project_path: Path, version: str, description: str
