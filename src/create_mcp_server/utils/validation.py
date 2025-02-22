@@ -7,6 +7,7 @@ Validation rules follow Python packaging standards (PEP 508, PEP 440) and common
 best practices for project naming.
 """
 
+import os
 import re
 from pathlib import Path
 from typing import Tuple

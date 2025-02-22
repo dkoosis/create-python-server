@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Optional, Dict, Any, List
 from dataclasses import dataclass
 import re
+from ..utils import atomic_write
 
 class PyProjectError(Exception):
     """Base exception for pyproject.toml operations."""
@@ -165,26 +166,17 @@ class PyProject:
             self.data["build-system"]["build-backend"] = build_backend
 
     def save(self) -> None:
-        """Save changes back to pyproject.toml.
-        
-        Raises:
-            PyProjectError: If file cannot be written
-        """
+        """Save changes back to pyproject.toml."""
         try:
             # Format with consistent indentation
             toml_str = toml.dumps(self.data)
             
-            # Ensure parent directory exists
-            self.path.parent.mkdir(parents=True, exist_ok=True)
-            
-            # Write atomically by using a temporary file
-            temp_path = self.path.with_suffix('.tmp')
-            temp_path.write_text(toml_str)
-            temp_path.replace(self.path)
-            
+            # Write using atomic utility
+            atomic_write(self.path, toml_str)
+                
         except Exception as e:
             raise PyProjectError(f"Failed to save {self.path}: {e}")
-
+    
     @staticmethod
     def create_default(
         path: Path,

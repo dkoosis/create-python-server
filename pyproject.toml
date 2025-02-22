@@ -1,3 +1,4 @@
+# pyproject.toml
 [project]
 name = "create-mcp-server"
 version = "1.0.6.dev0"
@@ -9,6 +10,21 @@ maintainers = [
     { name = "David Soria Parra", email = "davidsp@anthropic.com" },
     { name = "Justin Spahr-Summers", email = "justin@anthropic.com" },
 ]
+dependencies = [
+    "click>=8.1.7",
+    "jinja2>=3.1.4",
+    "packaging>=24.2",
+    "toml>=0.10.2",
+    "psutil>=5.9.0",  # Added for process monitoring
+    "aiohttp>=3.9.0"  # Added for health checks
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "black>=24.2.0",
+    "ruff>=0.3.0"
+]
 license = { text = "MIT" }
 classifiers = [
     "Development Status :: 4 - Beta",
@@ -16,12 +32,6 @@ classifiers = [
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.10",
-]
-dependencies = [
-    "click>=8.1.7",
-    "jinja2>=3.1.4",
-    "packaging>=24.2",
-    "toml>=0.10.2",
 ]
 
 [project.scripts]
@@ -42,4 +52,4 @@ artifacts = ["src/create_mcp_server/template"]
 dev-dependencies = ["pyright>=1.1.389", "ruff>=0.7.4"]
 
 [tool.uv.workspace]
-members = ["Test1", "RTM", "RTM1", "Fing", "Tst02", "TestC"]
+members = []

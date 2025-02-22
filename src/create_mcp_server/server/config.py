@@ -16,6 +16,7 @@ from dataclasses import dataclass, field, asdict
 from typing import List, Dict, Any, Optional
 import logging
 from enum import Enum
+from ..utils import atomic_write
 
 logger = logging.getLogger(__name__)
 
@@ -147,15 +148,14 @@ class ServerConfig:
         try:
             # Convert to dict, handling Path objects
             config_dict = asdict(self)
-            for key, value in config_dict.items():
-                if isinstance(value, Path):
-                    config_dict[key] = str(value)
-                    
-            # Write atomically
-            temp_path = path.with_suffix('.tmp')
-            temp_path.write_text(json.dumps(config_dict, indent=2))
-            temp_path.replace(path)
+            config_dict["resource_paths"] = [
+                str(p) for p in self.resource_paths
+            ]
+            config_dict["log_level"] = self.log_level.value
             
+            # Write using atomic utility
+            atomic_write(path, json.dumps(config_dict, indent=2))
+                
         except Exception as e:
             logger.error(f"Failed to save config to {path}: {e}")
 

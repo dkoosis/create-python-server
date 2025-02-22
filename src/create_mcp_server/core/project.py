@@ -1,6 +1,5 @@
 """Project creation and management."""
 from pathlib import Path
-from typing import Dict, Any
 from create_mcp_server.core.template import copy_template
 from create_mcp_server.core.pyproject import update_pyproject_settings
 from create_mcp_server.utils.process import run_uv_command

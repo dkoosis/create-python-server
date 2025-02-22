@@ -12,6 +12,7 @@ import sys
 from pathlib import Path
 from typing import Optional, Dict, Any
 import logging
+from ..utils import atomic_write
 
 logger = logging.getLogger(__name__)
 
@@ -86,23 +87,13 @@ def load_claude_config(config_path: Path) -> Dict[str, Any]:
         raise ConfigError(f"Error reading Claude config: {e}")
 
 def save_claude_config(config_path: Path, config_data: Dict[str, Any]) -> None:
-    """Save config data back to the Claude config file.
-    
-    Args:
-        config_path: Path to the config file
-        config_data: Config data to save
-        
-    Raises:
-        ConfigError: If config cannot be saved
-    """
+    """Save config data back to the Claude config file."""
     try:
         # Ensure parent directory exists
         config_path.parent.mkdir(parents=True, exist_ok=True)
         
-        # Write atomically using a temporary file
-        temp_path = config_path.with_suffix('.tmp')
-        temp_path.write_text(json.dumps(config_data, indent=2))
-        temp_path.replace(config_path)
+        # Write using atomic utility
+        atomic_write(config_path, json.dumps(config_data, indent=2))
         
     except Exception as e:
         raise ConfigError(f"Failed to save Claude config: {e}")
