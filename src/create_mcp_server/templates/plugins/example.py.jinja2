@@ -1,0 +1,160 @@
+"""Example plugin for {{ server_name }}.
+
+This demonstrates how to create plugins that extend server functionality
+by providing additional resources and tools.
+
+Features shown:
+- Resource provider implementation
+- Tool implementation 
+- Background task handling
+- Configuration management
+- Error handling
+"""
+
+import asyncio
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any, Dict, List, Optional
+import logging
+
+from {{ server_name }}.core import (
+    Plugin,
+    ResourceProvider,
+    Tool,
+    ResourceInfo,
+    ResourceError,
+    ToolError
+)
+
+logger = logging.getLogger(__name__)
+
+@dataclass
+class ExamplePluginConfig:
+    """Plugin-specific configuration."""
+    data_dir: Optional[Path] = None
+    update_interval: int = 60  # seconds
+    max_items: int = 100
+
+class ExampleResourceProvider(ResourceProvider):
+    """Example resource provider implementation."""
+    
+    def __init__(self, config: ExamplePluginConfig):
+        self.config = config
+        self._cache: Dict[str, bytes] = {}
+        
+    @property
+    def scheme(self) -> str:
+        return "example"
+        
+    def _get_resource_info(self, uri: str) -> ResourceInfo:
+        """Get metadata about an example resource."""
+        if not uri.startswith("example://"):
+            raise ResourceError(f"Invalid URI scheme: {uri}")
+            
+        name = uri.split("://")[1]
+        return ResourceInfo(
+            name=name,
+            uri=uri,
+            description=f"Example resource: {name}",
+            mime_type="text/plain"
+        )
+        
+    async def _read_resource(self, uri: str) -> bytes:
+        """Read an example resource."""
+        if uri not in self._cache:
+            # Simulate resource loading
+            await asyncio.sleep(0.1)
+            self._cache[uri] = f"Content for {uri}".encode()
+        return self._cache[uri]
+
+class ExampleTool(Tool):
+    """Example tool implementation."""
+    
+    @property
+    def name(self) -> str:
+        return "example-tool"
+        
+    @property
+    def description(self) -> str:
+        return "An example tool that processes text"
+        
+    @property
+    def input_schema(self) -> Dict:
+        return {
+            "type": "object",
+            "properties": {
+                "text": {"type": "string"},
+                "uppercase": {"type": "boolean", "default": False}
+            },
+            "required": ["text"]
+        }
+        
+    async def execute(self, arguments: Dict[str, Any]) -> str:
+        """Process text based on arguments."""
+        text = arguments["text"]
+        if arguments.get("uppercase", False):
+            text = text.upper()
+        return f"Processed: {text}"
+
+class ExamplePlugin(Plugin):
+    """Example plugin showing key features."""
+    
+    def __init__(self, server):
+        super().__init__(server)
+        self.config = ExamplePluginConfig()
+        self.provider = ExampleResourceProvider(self.config)
+        self.tool = ExampleTool()
+        
+    @property
+    def metadata(self):
+        return {
+            "name": "example-plugin",
+            "version": "0.1.0",
+            "description": "An example plugin showing key features"
+        }
+        
+    async def setup(self):
+        """Set up plugin configuration and resources."""
+        # Load config from environment/files
+        if data_dir := os.getenv("EXAMPLE_PLUGIN_DATA_DIR"):
+            self.config.data_dir = Path(data_dir)
+        
+        # Initialize resources
+        if self.config.data_dir:
+            self.config.data_dir.mkdir(parents=True, exist_ok=True)
+        
+    async def start(self):
+        """Start plugin operation."""
+        await super().start()
+        
+        # Start background update task
+        self.create_task(self._update_loop())
+        
+    async def _update_loop(self):
+        """Background task to periodically update data."""
+        while self._running:
+            try:
+                # Simulate background processing
+                logger.debug("Running background update")
+                await asyncio.sleep(self.config.update_interval)
+            except Exception as e:
+                logger.error(f"Update failed: {e}")
+                
+    def register_resources(self) -> List[ResourceInfo]:
+        """Register example resources."""
+        return [
+            ResourceInfo(
+                name="example1",
+                uri="example://example1",
+                description="First example resource"
+            ),
+            ResourceInfo(
+                name="example2", 
+                uri="example://example2",
+                description="Second example resource"
+            )
+        ]
+        
+    def register_tools(self) -> List[Tool]:
+        """Register example tools."""
+        return [self.tool]

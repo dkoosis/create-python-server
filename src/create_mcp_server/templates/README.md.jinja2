@@ -1,0 +1,122 @@
+# {{ server_name }}
+
+{{ server_description }}
+
+## Overview
+
+This is an MCP (Model Context Protocol) server that provides data and functionality to LLM applications through a standardized interface. The server follows Unix philosophy principles of modularity, composability, and simplicity.
+
+## Features
+
+- MCP protocol implementation for LLM integration
+- Resource providers for data access
+- Tool implementations for functionality
+- HTTP endpoints for health monitoring
+- Flexible configuration management
+- Robust error handling
+- Comprehensive logging
+
+## Installation
+
+```bash
+# Using uv (recommended)
+uv pip install .
+
+# Using pip
+pip install .
+```
+
+## Usage
+
+### Starting the Server
+
+```bash
+# Using environment variables
+export MCP_HOST="{{ server_host }}"
+export MCP_PORT="{{ server_port }}"
+export MCP_LOG_LEVEL="{{ log_level }}"
+python -m {{ server_name }}
+
+# Or using command line
+python -m {{ server_name }} --host {{ server_host }} --port {{ server_port }}
+```
+
+### Health Checks
+
+The server provides HTTP endpoints for monitoring:
+
+- Health check: `http://{{ server_host }}:{{ server_port }}/health`
+- Readiness check: `http://{{ server_host }}:{{ server_port }}/ready`
+
+### Configuration
+
+Configuration can be provided through:
+
+1. Environment variables (prefixed with `MCP_`)
+2. JSON config file
+3. Command line arguments
+
+#### Environment Variables
+
+- `MCP_HOST`: Server host (default: "{{ server_host }}")
+- `MCP_PORT`: Server port (default: {{ server_port }})
+- `MCP_LOG_LEVEL`: Logging level (default: "{{ log_level }}")
+- `MCP_LOG_FILE`: Optional log file path
+- `MCP_RESOURCE_PATHS`: Comma-separated resource paths
+- `MCP_MAX_RESOURCE_SIZE`: Maximum resource size in bytes
+- `MCP_ALLOWED_ORIGINS`: Comma-separated CORS origins
+- `MCP_DEV_MODE`: Enable development mode (true/false)
+- `MCP_RELOAD`: Enable auto-reload (true/false)
+
+#### Config File
+
+```json
+{
+  "host": "{{ server_host }}",
+  "port": {{ server_port }},
+  "log_level": "{{ log_level }}",
+  "resource_paths": ["/path/to/resources"],
+  "allowed_origins": ["*"]
+}
+```
+
+## Development
+
+### Requirements
+
+- Python 3.10+
+- uv package manager
+
+### Setup Development Environment
+
+```bash
+# Create virtual environment
+uv venv
+
+# Install dependencies
+uv pip install -e ".[dev]"
+```
+
+### Running Tests
+
+```bash
+pytest tests/
+```
+
+### Code Style
+
+This project uses:
+- Ruff for linting
+- Black for code formatting
+- Pyright for type checking
+
+```bash
+# Run all checks
+ruff check .
+black .
+pyright .
+```
+
+## License
+
+MIT License - see LICENSE file for details

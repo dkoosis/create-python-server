@@ -1,0 +1,243 @@
+"""Core functionality for {{ server_name }} MCP server.
+
+This module provides shared functionality and base classes used across
+the MCP server implementation. It handles:
+- Resource management
+- Tool implementation
+- Error handling
+- Common utilities
+"""
+
+import abc
+from dataclasses import dataclass, field
+from typing import Any, Dict, List, Optional, Protocol
+from pathlib import Path
+import logging
+
+logger = logging.getLogger(__name__)
+
+class ServerError(Exception):
+    """Base exception for server errors."""
+    pass
+
+class ResourceError(ServerError):
+    """Raised when resource operations fail."""
+    pass
+
+class ToolError(ServerError):
+    """Raised when tool operations fail."""
+    pass
+
+@dataclass
+class ResourceInfo:
+    """Metadata about a resource."""
+    name: str
+    uri: str
+    description: str = ""
+    mime_type: Optional[str] = None
+    size: Optional[int] = None
+    metadata: Dict[str, Any] = field(default_factory=dict)
+
+class ResourceProvider(Protocol):
+    """Protocol defining resource provider interface.
+    
+    Resource providers are responsible for accessing specific types of
+    resources (files, databases, APIs, etc). They provide a consistent
+    interface for reading resource content.
+    """
+    
+    @property
+    def scheme(self) -> str:
+        """Get URI scheme handled by this provider."""
+        ...
+        
+    def get_resource_info(self, uri: str) -> ResourceInfo:
+        """Get metadata about a resource.
+        
+        Args:
+            uri: Resource URI
+            
+        Returns:
+            ResourceInfo object
+            
+        Raises:
+            ResourceError: If resource not found or metadata unavailable
+        """
+        ...
+        
+    async def read_resource(self, uri: str) -> bytes:
+        """Read resource content.
+        
+        Args:
+            uri: Resource URI
+            
+        Returns:
+            Resource content as bytes
+            
+        Raises:
+            ResourceError: If resource cannot be read
+        """
+        ...
+
+class BaseResourceProvider(ResourceProvider):
+    """Base implementation of resource provider.
+    
+    This provides common functionality for resource providers:
+    - URI parsing and validation
+    - Error handling
+    - Logging
+    """
+    
+    @property
+    @abc.abstractmethod
+    def scheme(self) -> str:
+        """Get URI scheme handled by this provider."""
+        pass
+        
+    def get_resource_info(self, uri: str) -> ResourceInfo:
+        """Get resource metadata with error handling."""
+        try:
+            return self._get_resource_info(uri)
+        except Exception as e:
+            raise ResourceError(f"Failed to get resource info: {e}")
+            
+    async def read_resource(self, uri: str) -> bytes:
+        """Read resource with error handling."""
+        try:
+            return await self._read_resource(uri)
+        except Exception as e:
+            raise ResourceError(f"Failed to read resource: {e}")
+            
+    @abc.abstractmethod
+    def _get_resource_info(self, uri: str) -> ResourceInfo:
+        """Implement actual resource info retrieval."""
+        pass
+        
+    @abc.abstractmethod
+    async def _read_resource(self, uri: str) -> bytes:
+        """Implement actual resource reading."""
+        pass
+
+class FileResourceProvider(BaseResourceProvider):
+    """Resource provider for local files.
+    
+    This provider handles file:// URIs, providing access to local
+    files in a secure way.
+    """
+    
+    def __init__(self, root_dir: Optional[Path] = None):
+        """Initialize provider.
+        
+        Args:
+            root_dir: Optional root directory to restrict access to
+        """
+        self.root_dir = root_dir
+        
+    @property
+    def scheme(self) -> str:
+        return "file"
+        
+    def _get_resource_info(self, uri: str) -> ResourceInfo:
+        """Get file metadata."""
+        path = self._resolve_path(uri)
+        if not path.exists():
+            raise ResourceError(f"File not found: {path}")
+            
+        return ResourceInfo(
+            name=path.name,
+            uri=uri,
+            description=f"Local file: {path.name}",
+            mime_type=self._guess_mime_type(path),
+            size=path.stat().st_size
+        )
+        
+    async def _read_resource(self, uri: str) -> bytes:
+        """Read file content."""
+        path = self._resolve_path(uri)
+        if not path.exists():
+            raise ResourceError(f"File not found: {path}")
+            
+        return path.read_bytes()
+        
+    def _resolve_path(self, uri: str) -> Path:
+        """Resolve and validate file path from URI.
+        
+        This ensures the path is within the allowed root directory
+        if one is configured.
+        """
+        if not uri.startswith("file://"):
+            raise ResourceError("Invalid file URI")
+            
+        path = Path(uri[7:]).resolve()
+        
+        if self.root_dir:
+            try:
+                path.relative_to(self.root_dir)
+            except ValueError:
+                raise ResourceError("Access denied: Path outside root directory")
+                
+        return path
+        
+    def _guess_mime_type(self, path: Path) -> Optional[str]:
+        """Guess MIME type from file extension."""
+        import mimetypes
+        return mimetypes.guess_type(path)[0]
+
+class Tool(abc.ABC):
+    """Base class for tool implementations.
+    
+    Tools are executable components that can be called by LLMs through
+    the MCP protocol. They follow a consistent interface for:
+    - Parameter validation
+    - Execution
+    - Result formatting
+    - Error handling
+    """
+    
+    @property
+    @abc.abstractmethod
+    def name(self) -> str:
+        """Get tool name."""
+        pass
+        
+    @property
+    @abc.abstractmethod
+    def description(self) -> str:
+        """Get tool description."""
+        pass
+        
+    @property
+    @abc.abstractmethod
+    def input_schema(self) -> Dict:
+        """Get JSON Schema for tool input."""
+        pass
+        
+    @abc.abstractmethod
+    async def execute(self, arguments: Dict[str, Any]) -> Any:
+        """Execute the tool.
+        
+        Args:
+            arguments: Validated tool arguments
+            
+        Returns:
+            Tool execution result
+            
+        Raises:
+            ToolError: If execution fails
+        """
+        pass
+        
+    def validate_arguments(self, arguments: Dict[str, Any]) -> None:
+        """Validate tool arguments against schema.
+        
+        Args:
+            arguments: Arguments to validate
+            
+        Raises:
+            ToolError: If validation fails
+        """
+        try:
+            import jsonschema
+            jsonschema.validate(arguments, self.input_schema)
+        except jsonschema.exceptions.ValidationError as e:
+            raise ToolError(f"Invalid arguments: {e}")

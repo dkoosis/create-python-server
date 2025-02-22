@@ -1,0 +1,39 @@
+"""{{ server_name }} MCP Server.
+
+Version: {{ server_version }}
+Description: {{ server_description }}
+
+This package provides an MCP server implementation that follows
+Unix philosophy principles:
+- Do one thing well
+- Work with text streams
+- Compose through simple interfaces
+"""
+
+import sys
+from pathlib import Path
+
+__version__ = "{{ server_version }}"
+__description__ = "{{ server_description }}"
+
+# Add source directory to path if running directly
+if __package__ is None or __package__ == "":
+    sys.path.append(str(Path(__file__).resolve().parent.parent))
+
+# Import key components for easier access
+from .server import main, app, mcp_server
+from .config import ServerConfig, LogLevel
+from .core import ResourceProvider, Tool, ServerError
+
+__all__ = [
+    "__version__",
+    "__description__",
+    "main",
+    "app",
+    "mcp_server",
+    "ServerConfig",
+    "LogLevel",
+    "ResourceProvider",
+    "Tool", 
+    "ServerError"
+]

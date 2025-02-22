@@ -1,0 +1,212 @@
+"""Tests for {{ server_name }} plugins.
+
+This module provides tests for the plugin system and example plugin:
+- Plugin lifecycle (setup/start/stop)
+- Resource provider functionality
+- Tool execution
+- Configuration handling
+- Error cases
+"""
+
+import asyncio
+from pathlib import Path
+import pytest
+from unittest.mock import Mock, patch
+
+from {{ server_name }}.plugins.example import (
+    ExamplePlugin,
+    ExamplePluginConfig,
+    ExampleResourceProvider,
+    ExampleTool
+)
+from {{ server_name }}.core import ResourceError, ToolError
+
+@pytest.fixture
+def mock_server():
+    """Provide mock server for plugin testing."""
+    server = Mock()
+    server.request_context = Mock()
+    return server
+
+@pytest.fixture
+def plugin(mock_server):
+    """Provide configured plugin instance."""
+    return ExamplePlugin(mock_server)
+
+@pytest.fixture
+def resource_provider():
+    """Provide resource provider instance."""
+    config = ExamplePluginConfig(data_dir=Path("tests/data"))
+    return ExampleResourceProvider(config)
+
+@pytest.fixture
+def tool():
+    """Provide tool instance."""
+    return ExampleTool()
+
+@pytest.mark.asyncio
+async def test_plugin_lifecycle(plugin):
+    """Test plugin lifecycle methods."""
+    # Test setup
+    await plugin.setup()
+    assert plugin.config is not None
+    
+    # Test start
+    await plugin.start()
+    assert plugin._running
+    assert len(plugin._tasks) > 0  # Background task started
+    
+    # Test stop
+    await plugin.stop()
+    assert not plugin._running
+    assert len(plugin._tasks) == 0  # Tasks cleaned up
+    
+    # Verify cleanup on error
+    with pytest.raises(Exception):
+        async with plugin:
+            raise Exception("Test error")
+    assert not plugin._running
+
+@pytest.mark.asyncio
+async def test_resource_provider(resource_provider):
+    """Test resource provider functionality."""
+    # Test valid resource
+    uri = "example://test"
+    info = resource_provider._get_resource_info(uri)
+    assert info.name == "test"
+    assert info.uri == uri
+    assert info.mime_type == "text/plain"
+    
+    content = await resource_provider._read_resource(uri)
+    assert content
+    assert isinstance(content, bytes)
+    assert b"Content for example://test" in content
+    
+    # Test invalid resource
+    with pytest.raises(ResourceError):
+        await resource_provider._read_resource("invalid://uri")
+    
+    # Test caching
+    with patch('asyncio.sleep') as mock_sleep:
+        # First call should cache
+        await resource_provider._read_resource(uri)
+        mock_sleep.assert_called_once()
+        
+        # Second call should use cache
+        mock_sleep.reset_mock()
+        await resource_provider._read_resource(uri)
+        mock_sleep.assert_not_called()
+
+@pytest.mark.asyncio
+async def test_tool_execution(tool):
+    """Test tool execution."""
+    # Test normal execution
+    result = await tool.execute({"text": "hello"})
+    assert result == "Processed: hello"
+    
+    # Test with uppercase option
+    result = await tool.execute({"text": "hello", "uppercase": True})
+    assert result == "Processed: HELLO"
+    
+    # Test invalid arguments
+    with pytest.raises(ToolError):
+        await tool.execute({})  # Missing required text
+        
+    # Test schema validation
+    with pytest.raises(ToolError):
+        await tool.execute({"text": 123})  # Wrong type
+        
+    with pytest.raises(ToolError):
+        await tool.execute({"text": "hello", "uppercase": "yes"})  # Wrong type
+
+def test_tool_metadata(tool):
+    """Test tool metadata."""
+    assert tool.name == "example-tool"
+    assert tool.description
+    
+    schema = tool.input_schema
+    assert schema["type"] == "object"
+    assert "text" in schema["properties"]
+    assert "uppercase" in schema["properties"]
+    assert "text" in schema["required"]
+
+def test_plugin_registration(plugin):
+    """Test resource and tool registration."""
+    # Check resources
+    resources = plugin.register_resources()
+    assert len(resources) == 2  # Two example resources
+    
+    resource1, resource2 = resources
+    assert resource1.name == "example1"
+    assert resource1.uri == "example://example1"
+    assert resource2.name == "example2"
+    assert resource2.uri == "example://example2"
+        
+    # Check tools
+    tools = plugin.register_tools()
+    assert len(tools) == 1
+    tool = tools[0]
+    assert isinstance(tool, ExampleTool)
+    assert tool.name == "example-tool"
+
+@pytest.mark.asyncio
+async def test_plugin_configuration(plugin):
+    """Test plugin configuration handling."""
+    # Test default configuration
+    assert plugin.config.update_interval == 60
+    assert plugin.config.max_items == 100
+    assert plugin.config.data_dir is None
+    
+    # Test environment variable configuration
+    with patch.dict('os.environ', {'EXAMPLE_PLUGIN_DATA_DIR': 'test/data'}):
+        await plugin.setup()
+        assert plugin.config.data_dir == Path('test/data')
+        
+    # Test data directory creation
+    with patch('pathlib.Path.mkdir') as mock_mkdir:
+        plugin.config.data_dir = Path('test/data')
+        await plugin.setup()
+        mock_mkdir.assert_called_once_with(parents=True, exist_ok=True)
+
+@pytest.mark.asyncio
+async def test_background_task(plugin):
+    """Test background task execution."""
+    # Mock sleep to speed up test
+    with patch('asyncio.sleep') as mock_sleep:
+        # Start plugin
+        await plugin.start()
+        
+        # Let background task run a few cycles
+        await asyncio.sleep(0)  # Yield to event loop
+        assert mock_sleep.call_count >= 1
+        assert mock_sleep.call_args[0][0] == plugin.config.update_interval
+        
+        # Verify task stops on plugin stop
+        await plugin.stop()
+        mock_sleep.reset_mock()
+        await asyncio.sleep(0)
+        assert mock_sleep.call_count == 0
+
+@pytest.mark.asyncio
+async def test_error_handling(plugin, caplog):
+    """Test error handling in background tasks."""
+    # Inject error into update loop
+    def raise_error():
+        raise Exception("Test error")
+    
+    with patch('asyncio.sleep', side_effect=raise_error):
+        # Start plugin (should log error but continue running)
+        await plugin.start()
+        await asyncio.sleep(0)  # Let error occur
+        
+        assert "Test error" in caplog.text
+        assert plugin._running  # Plugin should keep running
+        
+        await plugin.stop()
+
+def test_plugin_metadata(plugin):
+    """Test plugin metadata."""
+    metadata = plugin.metadata
+    assert metadata["name"] == "example-plugin"
+    assert metadata["version"]
+    assert metadata["description"]
