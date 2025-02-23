@@ -1,28 +1,34 @@
-"""CLI command handlers for create-mcp-server.
+"""CLI command handlers for create_mcp_server.
 
-This module implements the command-line interface commands for creating and
-managing MCP servers. It separates CLI logic from core functionality.
+This module implements the command-line interface commands for
+creating and managing MCP servers. It separates CLI logic from core
+functionality.
 
 Commands follow Unix conventions:
+
 - Each command does one thing well
 - Commands can be composed through standard streams
 - Commands use consistent option styles
 - Commands provide meaningful exit codes
+
+File: create_mcp_server/cli/commands.py
 """
 
+import logging
 import sys
 from pathlib import Path
 from typing import Optional
-import click
-import logging
 
-from ..core.template import ServerTemplate, TemplateError
-from ..core.project import PyProject
-from ..server.manager import ServerManager
-from ..config import ServerConfig
-from ..utils.validation import check_package_name
-from ..claude import update_claude_config, has_claude_app
-from ..utils.process import ensure_uv_installed
+import click
+
+from..claude import has_claude_app, update_claude_config
+from..config import ServerConfig
+from..core.project import PyProject
+from..core.template import ServerTemplate, TemplateError
+from..server.manager import ServerManager
+from..utils.process import ensure_uv_installed
+from..utils.validation import check_package_name
+
 
 logger = logging.getLogger(__name__)
 

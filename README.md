@@ -1,6 +1,6 @@
 # MCP Create Server
 
-[![PyPI](https://img.shields.io/pypi/v/create-mcp-server)](https://pypi.org/project/create-mcp-server/) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![PyPI](https://img.shields.io/pypi/v/create_mcp_server)](https://pypi.org/project/create_mcp_server/) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 Create [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server projects with no build configuration.
 
@@ -8,11 +8,9 @@ Create [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server pr
 
 ```sh
 # Using uvx (recommended)
-uvx create-mcp-server
+uvx create_mcp_server
 
-# Or using pip
-pip install create-mcp-server
-create-mcp-server
+create_mcp_server
 ```
 
 You don't need to install or configure any dependencies manually. The tool will set up everything you need to create an MCP server.
@@ -25,13 +23,7 @@ To create a new server, run either of these commands:
 
 ### Using uvx (recommended)
 ```sh
-uvx create-mcp-server
-```
-
-### Using pip
-```sh
-pip install create-mcp-server
-create-mcp-server
+uvx create_mcp_server
 ```
 
 It will walk you through creating a new MCP server project. When complete, you'll have a new directory with this structure:

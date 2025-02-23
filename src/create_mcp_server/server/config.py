@@ -1,22 +1,25 @@
 """Server configuration management.
 
-This module handles server configuration through environment variables and settings files.
-It implements a layered configuration approach:
+This module handles server configuration through environment variables
+and settings files. It implements a layered configuration approach:
+
 1. Default values
 2. Environment variables
 3. Config file overrides
 4. Command line arguments
+
+File: create_mcp_server/server/config.py
 """
 
+import json
+import logging
 import os
 import sys
-import json
-from pathlib import Path
-from dataclasses import dataclass, field, asdict
-from typing import List, Dict, Any, Optional
-import logging
+from dataclasses import asdict, dataclass, field
 from enum import Enum
-from ..utils import atomic_write
+from pathlib import Path
+from typing import Any, Dict, List, Optional
+
 
 logger = logging.getLogger(__name__)
 

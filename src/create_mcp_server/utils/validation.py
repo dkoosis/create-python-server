@@ -1,18 +1,21 @@
 """Input validation utilities for MCP server creation.
 
-This module provides validation functions for various inputs required when creating
-an MCP server, such as package names, versions, etc.
+This module provides validation functions for various inputs required
+when creating an MCP server, such as package names, versions, etc.
 
-Validation rules follow Python packaging standards (PEP 508, PEP 440) and common 
-best practices for project naming.
+Validation rules follow Python packaging standards (PEP 508, PEP 440)
+and common best practices for project naming.
+
+File: create_mcp_server/utils/validation.py
 """
 
 import os
 import re
 from pathlib import Path
 from typing import Tuple
+
 import click
-from packaging.version import parse, InvalidVersion
+from packaging.version import InvalidVersion, parse
 
 def check_package_name(name: str) -> Tuple[bool, str]:
     """Validate a Python package name against standard naming conventions.

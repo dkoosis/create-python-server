@@ -4,7 +4,7 @@ requires-python = ">=3.10"
 
 [manifest]
 members = [
-    "create-mcp-server",
+    "create_mcp_server",
     "test1",
     "testc",
     "tst02",
@@ -65,7 +65,7 @@ wheels = [
 ]
 
 [[package]]
-name = "create-mcp-server"
+name = "create_mcp_server"
 version = "1.0.6.dev0"
 source = { editable = "." }
 dependencies = [

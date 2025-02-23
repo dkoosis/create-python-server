@@ -1,18 +1,23 @@
 """Claude.app integration utilities.
 
-This module handles integration with Claude.app, specifically for registering
-MCP servers with Claude Desktop. It provides:
+This module handles integration with Claude.app, specifically for
+registering MCP servers with Claude Desktop. It provides:
+
 - Configuration file handling
 - Server registration
 - Platform-specific path resolution
+
+File: create_mcp_server/utils/claude.py
 """
 
 import json
+import logging
 import sys
 from pathlib import Path
-from typing import Optional, Dict, Any
-import logging
-from ..utils import atomic_write
+from typing import Any, Dict, Optional
+
+from..utils import atomic_write
+
 
 logger = logging.getLogger(__name__)
 

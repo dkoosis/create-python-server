@@ -1,19 +1,24 @@
 """pyproject.toml file handling.
 
-This module provides utilities for reading and modifying pyproject.toml files.
-It handles:
+This module provides utilities for reading and modifying pyproject.toml
+files. It handles:
+
 - Loading and saving pyproject.toml
 - Updating project metadata
 - Managing dependencies and build settings
 - Script entry points
+
+File: create_mcp_server/core/pyproject.py
 """
 
-import toml
-from pathlib import Path
-from typing import Optional, Dict, Any, List
-from dataclasses import dataclass
 import re
-from ..utils import atomic_write
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any, Dict, List, Optional
+
+import toml
+
+from create_mcp_server.utils.files import atomic_write
 
 class PyProjectError(Exception):
     """Base exception for pyproject.toml operations."""

@@ -13,7 +13,7 @@ cd create-python-server
 ./setup.sh
 
 # Create your first MCP server
-create-mcp-server
+create_mcp_server
 ```
 
 ## Manual Setup
@@ -33,7 +33,7 @@ If you prefer to set up manually:
 
 ## Troubleshooting
 
-If you encounter "command not found: create-mcp-server":
+If you encounter "command not found: create_mcp_server":
 - Ensure you're in the virtual environment (you should see (.venv) in your prompt)
 - Try reinstalling the package: `pip install -e .`
 - You can also run directly as a module: `python -m create_mcp_server`

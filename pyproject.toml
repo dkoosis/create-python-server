@@ -1,14 +1,25 @@
-# pyproject.toml
+# File: create_mcp_server/pyproject.toml
+# Configuration for create_mcp_server - a tool that generates MCP server projects.
+# This is the configuration for the generator tool itself, not for the servers it creates.
+
 [project]
-name = "create-mcp-server"
+name = "create_mcp_server"
 version = "1.0.6.dev0"
 description = "Create an Model Context Protocol server project from a template."
 readme = "README.md"
 requires-python = ">=3.10"
+license = { text = "MIT" }
 authors = [{ name = "Anthropic, PBC." }]
 maintainers = [
     { name = "David Soria Parra", email = "davidsp@anthropic.com" },
     { name = "Justin Spahr-Summers", email = "justin@anthropic.com" },
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
 ]
 dependencies = [
     "click>=8.1.7",
@@ -25,17 +36,9 @@ dev = [
     "black>=24.2.0",
     "ruff>=0.3.0"
 ]
-license = { text = "MIT" }
-classifiers = [
-    "Development Status :: 4 - Beta",
-    "Intended Audience :: Developers",
-    "License :: OSI Approved :: MIT License",
-    "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.10",
-]
 
 [project.scripts]
-create-mcp-server = "create_mcp_server:main"
+create_mcp_server = "create_mcp_server.cli.main:main"
 
 [project.urls]
 Homepage = "https://modelcontextprotocol.io"

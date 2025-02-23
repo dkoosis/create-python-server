@@ -1,19 +1,23 @@
 """Process management and UV package manager utilities.
 
-This module handles interactions with external processes, particularly the UV package manager.
-It provides functions for:
+This module handles interactions with external processes, particularly
+the UV package manager. It provides functions for:
+
 - Verifying UV installation and version
 - Running UV commands safely
 - Managing subprocess execution and error handling
+
+File: create_mcp_server/utils/process.py
 """
 
+import re
 import subprocess
 import sys
 from pathlib import Path
-import re
-from typing import List, Optional, Dict
+from typing import Dict, List, Optional
+
 import click
-from packaging.version import parse, Version
+from packaging.version import Version, parse
 
 # Constants
 MIN_UV_VERSION = "0.4.10"

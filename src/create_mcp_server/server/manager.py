@@ -1,27 +1,33 @@
 """Server lifecycle management.
 
 This module handles server lifecycle including:
+
 - Starting and stopping servers
 - Health monitoring
 - Port management
 - Process supervision
+
+File: create_mcp_server/server/manager.py
 """
 
 import asyncio
-import aiohttp
-import subprocess
-import signal
-import os
-import time
-from pathlib import Path
-from typing import Optional, Dict, Any, List
 import logging
-import click
+import os
+import signal
+import subprocess
 import sys
+import time
 from dataclasses import dataclass
-from .config import ServerConfig
 from datetime import datetime, timedelta
+from pathlib import Path
+from typing import Any, Dict, List, Optional
+
+import aiohttp
+import click
 import psutil
+
+from.config import ServerConfig
+
 
 logger = logging.getLogger(__name__)
 

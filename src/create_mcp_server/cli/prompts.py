@@ -1,19 +1,60 @@
-"""User interaction functions for create-mcp-server.
+"""User interaction functions for create_mcp_server.
 
-This module provides a clean interface for user interaction, separating
-prompt logic from command handlers. It follows consistent patterns for:
-- Input validation
-- Error handling
-- Default values
-- Help text
+This module provides a clean interface for user interaction,
+separating prompt logic from command handlers.
+
+File: create_mcp_server/cli/prompts.py
 """
 
 from pathlib import Path
 from typing import Optional, Tuple
+
 import click
 
+from ..server.config import LogLevel, ServerConfig
 from ..utils.validation import check_package_name, check_version
-from ..config import ServerConfig, LogLevel
+
+
+def prompt_for_project_details(
+    path: Optional[Path],
+    name: Optional[str],
+    version: Optional[str],
+    description: Optional[str]
+) -> dict:
+    """Prompt for project details if not provided."""
+    if name is None:
+        name = click.prompt("Project name", type=str)
+        
+    if not name:
+        raise click.UsageError("Project name is required")
+        
+    is_valid, error = check_package_name(name)
+    if not is_valid:
+        raise click.UsageError(error)
+        
+    if description is None:
+        description = click.prompt(
+            "Project description",
+            type=str,
+            default="An MCP server"
+        )
+        
+    if version is None:
+        version = click.prompt(
+            "Project version",
+            type=str,
+            default="0.1.0"
+        )
+        
+    if path is None:
+        path = Path.cwd() / name
+        
+    return {
+        "path": path,
+        "name": name,
+        "version": version,
+        "description": description
+    }
 
 def prompt_project_name(default: Optional[str] = None) -> str:
     """Prompt for and validate project name.

@@ -1,8 +1,12 @@
-"""File system utilities for safe file operations."""
+"""File system utilities for safe file operations.
+
+File: create_mcp_server/utils/files.py
+"""
+
 import os
-from pathlib import Path
-from typing import Union, BinaryIO
 import shutil
+from pathlib import Path
+from typing import BinaryIO, Union
 
 def atomic_write(path: Path, content: Union[str, bytes]) -> None:
     """Write content to file atomically using a temporary file.

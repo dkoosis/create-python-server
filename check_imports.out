@@ -1,0 +1,8 @@
+ERROR: In '/Users/davidkoosis/projects/create_mcp_server/src/create_mcp_server/core/template.py', line 23: Could not resolve relative import.
+       Perhaps try: from ..server.config import ServerConfig
+ERROR: In '/Users/davidkoosis/projects/create_mcp_server/src/create_mcp_server/cli/commands.py', line 24: Could not resolve relative import.
+       Perhaps try: from ..utils.claude import has_claude_app, update_claude_config
+ERROR: In '/Users/davidkoosis/projects/create_mcp_server/src/create_mcp_server/cli/commands.py', line 25: Could not resolve relative import.
+       Perhaps try: from ..server.config import ServerConfig
+
+Import hygiene check FAILED. See errors above.

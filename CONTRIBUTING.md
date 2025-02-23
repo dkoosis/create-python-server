@@ -1,11 +1,11 @@
 # Contributing
 
-Thank you for your interest in contributing to `create-mcp-server`! This tool helps developers quickly scaffold new MCP (Model Context Protocol) servers.
+Thank you for your interest in contributing to `create_mcp_server`! This tool helps developers quickly scaffold new MCP (Model Context Protocol) servers.
 
 ## Getting Started
 
 1. Fork the repository
-2. Clone your fork: `git clone https://github.com/YOUR_USERNAME/create-python-server.git`
+2. Clone your fork: `git clone https://github.com/YOUR_USERNAME/create_python_server.git`
 3. Install dependencies: `uv sync --dev --all-extras`
 
 ## Development

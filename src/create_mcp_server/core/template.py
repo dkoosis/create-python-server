@@ -1,24 +1,29 @@
 """Template generation for MCP servers.
 
 This module handles the creation and rendering of MCP server templates.
-It provides a clean separation between template logic and other concerns
-like configuration and CLI interaction.
+It provides a clean separation between template logic and other
+concerns like configuration and CLI interaction.
 
 Key responsibilities:
+
 - Managing template files and structure
 - Rendering templates with provided context
 - Validating template output
+
+File: create_mcp_server/core/template.py
 """
 
 import logging
+import shutil
 from pathlib import Path
 from typing import Dict, List, Optional
-from jinja2 import Environment, FileSystemLoader, Template
-import shutil
 
-from ..utils import atomic_write, safe_rmtree
-from ..config import ServerConfig
-from ..utils.validation import check_project_path
+from jinja2 import Environment, FileSystemLoader
+
+from..config import ServerConfig
+from..utils import atomic_write, safe_rmtree
+from..utils.validation import check_project_path
+
 
 logger = logging.getLogger(__name__)
 
