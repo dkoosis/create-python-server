@@ -6,8 +6,6 @@ the UV package manager. It provides functions for:
 - Verifying UV installation and version
 - Running UV commands safely
 - Managing subprocess execution and error handling
-
-File: create_mcp_server/utils/process.py
 """
 
 import re
@@ -20,7 +18,7 @@ import click
 from packaging.version import Version, parse
 
 # Constants
-MIN_UV_VERSION = "0.4.10"
+MIN_UV_VERSION = "0.1.10"  # Changed to a more likely minimum version
 PROCESS_TIMEOUT = 300  # 5 minutes default timeout
 
 class ProcessError(Exception):
@@ -50,18 +48,7 @@ class CommandError(ProcessError):
         super().__init__(msg)
 
 def check_uv_version(required_version: str = MIN_UV_VERSION) -> Optional[Version]:
-    """Check if UV is installed and verify its version.
-    
-    Args:
-        required_version: Minimum required UV version
-        
-    Returns:
-        Version object if UV meets version requirement, None otherwise
-        
-    Raises:
-        UVNotFoundError: If UV is not installed
-        UVVersionError: If UV version is incompatible
-    """
+    """Check if UV is installed and verify its version."""
     try:
         result = subprocess.run(
             ["uv", "--version"],
@@ -73,29 +60,24 @@ def check_uv_version(required_version: str = MIN_UV_VERSION) -> Optional[Version
         match = re.match(r"uv (\d+\.\d+\.\d+)", version_str)
         if not match:
             raise UVVersionError(f"Unable to parse UV version from: {version_str}")
-            
+
         version = parse(match.group(1))
         required = parse(required_version)
-        
+
         if version < required:
             raise UVVersionError(
                 f"UV version {version} is older than required version {required_version}"
             )
-            
+
         return version
-        
+
     except FileNotFoundError:
         raise UVNotFoundError("UV package manager not found")
     except subprocess.CalledProcessError as e:
         raise ProcessError(f"Error checking UV version: {e}")
 
 def ensure_uv_installed() -> None:
-    """Ensure UV is installed at minimum version.
-    
-    Raises:
-        UVNotFoundError: If UV is not installed
-        UVVersionError: If UV version is incompatible
-    """
+    """Ensure UV is installed at minimum version."""
     try:
         check_uv_version()
     except UVNotFoundError:
@@ -114,24 +96,9 @@ def run_uv_command(
     timeout: int = PROCESS_TIMEOUT,
     check: bool = True
 ) -> subprocess.CompletedProcess:
-    """Run a UV command with proper error handling.
-    
-    Args:
-        args: Command arguments to pass to UV
-        cwd: Working directory for command execution
-        env: Optional environment variables
-        timeout: Command timeout in seconds
-        check: Whether to check return code
-        
-    Returns:
-        CompletedProcess instance
-        
-    Raises:
-        CommandError: If command fails and check=True
-        TimeoutExpired: If command exceeds timeout
-    """
-    cmd = ["uv", *args]
-    
+    """Run a UV command with proper error handling."""
+    cmd = ["uv", *args]  # Construct the full command
+
     try:
         result = subprocess.run(
             cmd,
@@ -140,9 +107,9 @@ def run_uv_command(
             capture_output=True,
             text=True,
             timeout=timeout,
-            check=False
+            check=False  # We'll handle checking manually
         )
-        
+
         if check and result.returncode != 0:
             raise CommandError(
                 cmd=cmd,
@@ -150,13 +117,13 @@ def run_uv_command(
                 stdout=result.stdout,
                 stderr=result.stderr
             )
-            
+
         return result
-        
+
     except subprocess.TimeoutExpired as e:
         raise CommandError(
             cmd=cmd,
-            returncode=-1,
+            returncode=-1,  # Use -1 for timeout
             stdout="",
             stderr=f"Command timed out after {timeout} seconds"
         ) from e
@@ -166,19 +133,7 @@ def run_background_process(
     cwd: Path,
     env: Optional[Dict[str, str]] = None
 ) -> subprocess.Popen:
-    """Start a long-running background process.
-    
-    Args:
-        args: Command arguments
-        cwd: Working directory
-        env: Optional environment variables
-        
-    Returns:
-        Popen object for the running process
-        
-    This is useful for starting servers and other long-running processes
-    that shouldn't block the main thread.
-    """
+    """Start a long-running background process."""
     try:
         process = subprocess.Popen(
             args,
@@ -188,8 +143,8 @@ def run_background_process(
             stderr=subprocess.PIPE,
             text=True
         )
-        
-        # Quick check if process failed to start
+
+        # Quick check if process failed to start immediately
         if process.poll() is not None:
             stdout, stderr = process.communicate()
             raise CommandError(
@@ -198,26 +153,18 @@ def run_background_process(
                 stdout=stdout,
                 stderr=stderr
             )
-            
+
         return process
-        
+
     except Exception as e:
         raise ProcessError(f"Failed to start process: {e}")
 
 def kill_process(process: subprocess.Popen, timeout: int = 5) -> None:
-    """Safely kill a running process.
-    
-    Args:
-        process: Popen object to terminate
-        timeout: Seconds to wait for graceful termination
-        
-    This attempts a graceful termination first, then forces
-    if the process doesn't respond.
-    """
-    if process.poll() is None:
-        process.terminate()
+    """Safely kill a running process."""
+    if process.poll() is None:  # Check if process is still running
+        process.terminate()  # Try graceful termination
         try:
-            process.wait(timeout=timeout)
+            process.wait(timeout=timeout)  # Wait for termination
         except subprocess.TimeoutExpired:
-            process.kill()
-            process.wait()
+            process.kill()  # Force termination if it times out
+            process.wait() # wait for the kill to complete

@@ -2,7 +2,6 @@
 from pathlib import Path
 
 from create_mcp_server.core.pyproject import PyProject, update_pyproject_settings
-from create_mcp_server.core.template import copy_template  # We'll create a placeholder later
 from create_mcp_server.utils.process import run_uv_command  # We'll create a placeholder later
 
 def create_project(

@@ -1,0 +1,1 @@
+./setup_mcp.sh: line 152: /Users/davidkoosis/projects/create_mcp_server/check_imports.py: Permission denied

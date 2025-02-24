@@ -38,7 +38,8 @@ dev = [
 ]
 
 [project.scripts]
-create_mcp_server = "create_mcp_server.cli.main:main"
+create_mcp_server = "create_mcp_server.cli.main:cli"
+start_mcp_server = "create_mcp_server.cli.main:start"
 
 [project.urls]
 Homepage = "https://modelcontextprotocol.io"

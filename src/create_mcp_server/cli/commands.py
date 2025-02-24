@@ -1,19 +1,3 @@
-"""CLI command handlers for create_mcp_server.
-
-This module implements the command-line interface commands for
-creating and managing MCP servers. It separates CLI logic from core
-functionality.
-
-Commands follow Unix conventions:
-
-- Each command does one thing well
-- Commands can be composed through standard streams
-- Commands use consistent option styles
-- Commands provide meaningful exit codes
-
-File: create_mcp_server/cli/commands.py
-"""
-
 import logging
 import sys
 from pathlib import Path
@@ -21,13 +5,13 @@ from typing import Optional
 
 import click
 
-from..claude import has_claude_app, update_claude_config
-from..config import ServerConfig
-from..core.project import PyProject
-from..core.template import ServerTemplate, TemplateError
-from..server.manager import ServerManager
-from..utils.process import ensure_uv_installed
-from..utils.validation import check_package_name
+from ..claude import has_claude_app, update_claude_config
+from ..config import ServerConfig
+from ..core.project import PyProject
+from ..core.template import ServerTemplate, TemplateError
+from ..server.manager import ServerManager
+from ..utils.process import ensure_uv_installed
+from ..utils.validation import check_package_name
 
 
 logger = logging.getLogger(__name__)
@@ -48,6 +32,15 @@ def cli(debug: bool) -> None:
     """
     log_level = logging.DEBUG if debug else logging.INFO
     logging.basicConfig(level=log_level)
+
+def load_project(path: Path) -> PyProject:
+    """Load the project configuration from pyproject.toml."""
+    try:
+        pyproject = PyProject(path / "pyproject.toml")
+        return pyproject
+    except Exception as e:
+        click.echo(f"❌ Error loading project: {e}", err=True)
+        sys.exit(EXIT_RUNTIME_ERROR)
 
 @cli.command()
 @click.option('--path', type=click.Path(path_type=Path), help="Project directory")
@@ -148,7 +141,7 @@ def start(path: Path, port: int, host: str) -> None:
     """Start an MCP server."""
     try:
         # Load project
-        pyproject = PyProject(path / "pyproject.toml")
+        pyproject = load_project(path)
         name = pyproject.metadata.name
         
         # Create and start server
@@ -170,7 +163,7 @@ def start(path: Path, port: int, host: str) -> None:
 def stop(path: Path) -> None:
     """Stop a running MCP server."""
     try:
-        pyproject = PyProject(path / "pyproject.toml")
+        pyproject = load_project(path)
         name = pyproject.metadata.name
         
         server = ServerManager(path, name)
@@ -187,7 +180,7 @@ def stop(path: Path) -> None:
 def status(path: Path) -> None:
     """Check MCP server status."""
     try:
-        pyproject = PyProject(path / "pyproject.toml")
+        pyproject = load_project(path)
         name = pyproject.metadata.name
         
         server = ServerManager(path, name)

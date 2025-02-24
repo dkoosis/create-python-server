@@ -6,7 +6,7 @@ when creating an MCP server, such as package names, versions, etc.
 Validation rules follow Python packaging standards (PEP 508, PEP 440)
 and common best practices for project naming.
 
-File: create_mcp_server/utils/validation.py
+File: create-mcp-server/utils/validation.py
 """
 
 import os

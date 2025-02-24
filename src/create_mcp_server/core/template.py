@@ -5,12 +5,11 @@ It provides a clean separation between template logic and other
 concerns like configuration and CLI interaction.
 
 Key responsibilities:
-
 - Managing template files and structure
 - Rendering templates with provided context
 - Validating template output
 
-File: create_mcp_server/core/template.py
+File: create-mcp-server/core/template.py
 """
 
 import logging
@@ -19,20 +18,15 @@ from pathlib import Path
 from typing import Dict, List, Optional
 
 from jinja2 import Environment, FileSystemLoader
-
-from..config import ServerConfig
-from..utils import atomic_write, safe_rmtree
-from..utils.validation import check_project_path
+from ..server.config import ServerConfig
+from ..utils.files import atomic_write, safe_rmtree
+from ..utils.validation import check_project_path
 
 
 logger = logging.getLogger(__name__)
 
 class TemplateError(Exception):
     """Base exception for template-related errors."""
-    pass
-
-class TemplateNotFoundError(TemplateError):
-    """Raised when a template file cannot be found."""
     pass
 
 class RenderError(TemplateError):
