@@ -1,234 +1,318 @@
-"""
-User interaction functions for create_mcp_server.
+"""User interaction functions for create_mcp_server.
 
 This module provides a clean interface for user interaction,
-separating prompt logic from command handlers.
+separating prompt logic from command handlers. It handles:
+- User input validation
+- Default value handling
+- Error reporting
+- Type conversion
+- Help text
+- Confirmation prompts
 
 File: create_mcp_server/cli/prompts.py
 """
 
+import logging
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional, Tuple
+from typing import Any, Callable, Dict, Optional, TypeVar, Union, cast
 
 import click
 
-from..server.config import LogLevel, ServerConfig
-from..utils.validation import check_package_name, check_version, check_project_path
+from ..server.config import LogLevel, ServerConfig
+from ..utils.validation import (
+    ValidationResult,
+    check_package_name,
+    check_version,
+    check_project_path,
+    validate_description,
+    validate_url,
+    validate_email
+)
 
+logger = logging.getLogger(__name__)
+
+T = TypeVar('T')
+
+@dataclass
+class PromptOptions:
+    """Options for customizing prompts."""
+    prompt_text: str
+    help_text: Optional[str] = None
+    default: Optional[Any] = None
+    show_default: bool = True
+    required: bool = True
+    confirmation: bool = False
+    abort_on_error: bool = True
 
 def prompt_with_validation(
-    prompt_text: str,
-    validator: callable,
-    default: Optional[str] = None,
-    show_default: bool = True,
-    type: type = str  # Add a type parameter
-) -> str:
-    """
-    Generic prompt function with validation.
+    options: PromptOptions,
+    validator: Callable[[Any], ValidationResult],
+    value_type: type = str
+) -> Any:
+    """Generic prompt function with validation.
 
     Args:
-        prompt_text: The text to display at the prompt.
-        validator: A callable that takes the input value and returns
-                   a tuple of (is_valid, error_message).
-        default: An optional default value.
-        show_default: Whether to show the default value.
-        type: The expected type of the input (e.g., str, int).
+        options: Prompt configuration options
+        validator: Validation function
+        value_type: Expected value type
 
     Returns:
-        The validated input value.
+        Validated input value
 
     Raises:
-        click.Abort: If the user cancels the input.
+        click.Abort: If user cancels or validation fails with abort_on_error
     """
     while True:
-        value = click.prompt(
-            prompt_text,
-            type=type,
-            default=default,
-            show_default=show_default
-        )
-        is_valid, error = validator(value)
-        if is_valid:
-            return value
-        click.echo(f"❌ {error}", err=True)
-        if not click.confirm("Try again?", default=True):
-            raise click.Abort()
+        # Show help text if available
+        if options.help_text:
+            click.echo(f"\n{options.help_text}")
 
+        try:
+            # Handle prompt
+            value = click.prompt(
+                options.prompt_text,
+                type=value_type,
+                default=options.default,
+                show_default=options.show_default
+            )
+
+            # Handle empty input
+            if not value and options.required:
+                click.echo("❌ This field is required", err=True)
+                continue
+
+            # Validate input
+            result = validator(value)
+            if not result.is_valid:
+                click.echo(f"❌ {result.message}", err=True)
+                if options.abort_on_error:
+                    raise click.Abort()
+                if not click.confirm("Try again?", default=True):
+                    raise click.Abort()
+                continue
+
+            # Handle confirmation
+            if options.confirmation:
+                if not click.confirm("Is this correct?", default=True):
+                    continue
+
+            return value
+
+        except click.exceptions.Abort:
+            raise
+        except Exception as e:
+            click.echo(f"❌ Invalid input: {e}", err=True)
+            if options.abort_on_error:
+                raise click.Abort()
+            if not click.confirm("Try again?", default=True):
+                raise click.Abort()
 
 def prompt_project_name(default: Optional[str] = None) -> str:
-    """
-    Prompt for and validate project name.
+    """Prompt for and validate project name.
 
     Args:
-        default: Optional default name to suggest.
+        default: Optional default name to suggest
 
     Returns:
-        Validated project name.
+        Validated project name
 
     Raises:
-        click.Abort: If the user cancels input.
-
-    Validation Rules:
-        - Must not be empty.
-        - Must contain only ASCII letters, digits, '_', '-', '.'
-        - Must not start or end with '_', '-', '.'
-        - Must not contain spaces.
-        - Must be a valid Python identifier.
-        - Must be lowercase (recommendation only - warns but doesn't fail).
+        click.Abort: If user cancels input
     """
-    return prompt_with_validation(
-        "Project name",
-        check_package_name,
-        default,
-        show_default=bool(default)
+    options = PromptOptions(
+        prompt_text="Project name",
+        help_text="Enter a name for your MCP server project.\n"
+                 "Use only letters, numbers, hyphens, and underscores.",
+        default=default,
+        show_default=bool(default),
+        required=True,
+        confirmation=True
     )
-
+    
+    return prompt_with_validation(options, check_package_name)
 
 def prompt_project_version(default: str = "0.1.0") -> str:
-    """
-    Prompt for and validate project version.
+    """Prompt for and validate project version.
 
     Args:
-        default: Default version to suggest.
+        default: Default version to suggest
 
     Returns:
-        Validated version string.
+        Validated version string
 
     Raises:
-        click.Abort: If the user cancels input.
-
-    Validation Rules:
-        - Must be a valid semantic version according to PEP 440.
+        click.Abort: If user cancels input
     """
-    return prompt_with_validation(
-        "Project version",
-        check_version,
-        default
+    options = PromptOptions(
+        prompt_text="Project version",
+        help_text="Enter the initial version number.\n"
+                 "Use semantic versioning (e.g., 1.0.0).",
+        default=default,
+        required=True
     )
-
+    
+    return prompt_with_validation(options, check_version)
 
 def prompt_project_path(
     name: str,
     default: Optional[Path] = None
 ) -> Path:
-    """
-    Prompt for and validate project directory path.
+    """Prompt for and validate project directory path.
 
     Args:
-        name: Project name (used for default path).
-        default: Optional default path to suggest.
+        name: Project name (used for default path)
+        default: Optional default path to suggest
 
     Returns:
-        Validated Path object.
+        Validated Path object
 
     Raises:
-        click.Abort: If the user cancels input.
-
-    Validation Rules:
-        - Path must be absolute or able to be resolved.
-        - Parent directory must exist.
-        - Path must not exist or be an empty directory.
-        - Must have write permissions to the parent directory.
+        click.Abort: If user cancels input
     """
     if default is None:
         default = Path.cwd() / name
-    return prompt_with_validation(
-        "Project directory",
-        lambda path_str: check_project_path(Path(path_str)),
-        str(default),
-        type=str
+        
+    options = PromptOptions(
+        prompt_text="Project directory",
+        help_text="Enter the directory where the project will be created.",
+        default=str(default),
+        required=True,
+        confirmation=True
     )
+    
+    return Path(prompt_with_validation(
+        options,
+        lambda p: check_project_path(Path(p))
+    ))
 
+def prompt_description(default: str = "An MCP server") -> str:
+    """Prompt for project description.
+
+    Args:
+        default: Default description
+
+    Returns:
+        Validated description
+
+    Raises:
+        click.Abort: If user cancels input
+    """
+    options = PromptOptions(
+        prompt_text="Project description",
+        help_text="Enter a brief description of your MCP server.",
+        default=default,
+        required=False
+    )
+    
+    return prompt_with_validation(options, validate_description)
 
 def prompt_for_project_details(
     path: Optional[Path],
     name: Optional[str],
     version: Optional[str],
     description: Optional[str]
-) -> dict:
-    """Prompt for project details if not provided."""
+) -> Dict[str, Any]:
+    """Prompt for missing project details.
+
+    Args:
+        path: Project directory (optional)
+        name: Project name (optional)
+        version: Project version (optional)
+        description: Project description (optional)
+
+    Returns:
+        Dictionary of project details
+
+    Raises:
+        click.Abort: If user cancels any prompt
+    """
+    details = {}
+
+    # Get project name
     if name is None:
-        name = click.prompt("Project name", type=str)
+        details['name'] = prompt_project_name()
+    else:
+        result = check_package_name(name)
+        if not result.is_valid:
+            raise click.UsageError(result.message)
+        details['name'] = name
 
-    if not name:
-        raise click.UsageError("Project name is required")
-
-    is_valid, error = check_package_name(name)
-    if not is_valid:
-        raise click.UsageError(error)
-
-    if description is None:
-        description = click.prompt(
-            "Project description",
-            type=str,
-            default="An MCP server"
-        )
-
-    if version is None:
-        version = click.prompt(
-            "Project version",
-            type=str,
-            default="0.1.0"
-        )
-
+    # Get project path
     if path is None:
-        path = Path.cwd() / name
+        details['path'] = prompt_project_path(details.get('name', name))
+    else:
+        result = check_project_path(path)
+        if not result.is_valid:
+            raise click.UsageError(result.message)
+        details['path'] = path
 
-    return {
-        "path": path,
-        "name": name,
-        "version": version,
-        "description": description
-    }
+    # Get version
+    if version is None:
+        details['version'] = prompt_project_version()
+    else:
+        result = check_version(version)
+        if not result.is_valid:
+            raise click.UsageError(result.message)
+        details['version'] = version
 
+    # Get description
+    if description is None:
+        details['description'] = prompt_description()
+    else:
+        result = validate_description(description)
+        if not result.is_valid:
+            raise click.UsageError(result.message)
+        details['description'] = description
+
+    return details
 
 def prompt_server_config(
     name: str,
     version: str,
     description: Optional[str] = None
 ) -> ServerConfig:
-    """
-    Prompt for server configuration options.
+    """Prompt for server configuration options.
 
     Args:
-        name: Project name.
-        version: Project version.
-        description: Optional project description.
+        name: Project name
+        version: Project version
+        description: Optional project description
 
     Returns:
-        Populated ServerConfig object.
+        Populated ServerConfig object
 
     Raises:
-        click.Abort: If the user cancels input.
+        click.Abort: If user cancels input
     """
     if description is None:
-        description = click.prompt(
-            "Project description",
-            type=str,
-            default="An MCP server",
-            show_default=True
-        )
+        description = prompt_description()
 
     # Network settings
-    host = click.prompt(
-        "Server host",
-        type=str,
-        default="127.0.0.1",
-        show_default=True
+    host_options = PromptOptions(
+        prompt_text="Server host",
+        help_text="Enter the host address to bind to.",
+        default="127.0.0.1"
+    )
+    host = prompt_with_validation(
+        host_options,
+        lambda h: ValidationResult(True, "") if h else ValidationResult(False, "Host is required")
     )
 
-    port = click.prompt(
-        "Server port",
-        type=int,
-        default=8000,
-        show_default=True
+    port_options = PromptOptions(
+        prompt_text="Server port",
+        help_text="Enter the port number (1-65535).",
+        default=8000
     )
-    while not 1 <= port <= 65535:
-        click.echo("❌ Port must be between 1 and 65535", err=True)
-        try:
-            port = click.prompt("Server port", type=int)
-        except ValueError:
-            click.echo("❌ Invalid port number", err=True)
+    port = prompt_with_validation(
+        port_options,
+        lambda p: ValidationResult(
+            True, ""
+        ) if 1 <= int(p) <= 65535 else ValidationResult(
+            False, "Port must be between 1 and 65535"
+        ),
+        value_type=int
+    )
 
     # Logging settings
     log_levels = [level.value for level in LogLevel]
@@ -284,4 +368,3 @@ def confirm_server_start(config: ServerConfig) -> bool:
     click.echo(f"  Log Level: {config.log_level.value}")
     
     return click.confirm("\nStart server?", default=True)
-}

@@ -4,21 +4,34 @@ This module provides utilities for reading and modifying pyproject.toml
 files. It handles:
 
 - Loading and saving pyproject.toml
-- Updating project metadata
-- Managing dependencies and build settings
+- Project metadata management
+- Dependency management
+- Build settings
 - Script entry points
+- Atomic file operations
 
 File: create_mcp_server/core/pyproject.py
 """
 
+import logging
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Set, Union
 
 import toml
+from packaging.specifiers import SpecifierSet
+from packaging.version import Version, parse
 
-from create_mcp_server.utils.files import atomic_write
+from ..utils.files import atomic_write, FileError
+from ..utils.validation import (
+    ValidationResult,
+    check_package_name,
+    check_version,
+    validate_description
+)
+
+logger = logging.getLogger(__name__)
 
 class PyProjectError(Exception):
     """Base exception for pyproject.toml operations."""
@@ -28,6 +41,71 @@ class InvalidProjectError(PyProjectError):
     """Raised when pyproject.toml is invalid."""
     pass
 
+class DependencyError(PyProjectError):
+    """Raised when dependency operations fail."""
+    pass
+
+@dataclass
+class Dependency:
+    """Package dependency information."""
+    name: str
+    version_spec: Optional[str] = None
+    extras: Set[str] = field(default_factory=set)
+    optional: bool = False
+    
+    def __str__(self) -> str:
+        """Convert to dependency string format."""
+        parts = [self.name]
+        if self.version_spec:
+            parts.append(self.version_spec)
+        if self.extras:
+            parts.append(f"[{','.join(sorted(self.extras))}]")
+        return ''.join(parts)
+    
+    @classmethod
+    def from_string(cls, dep_string: str) -> 'Dependency':
+        """Parse dependency from string.
+        
+        Args:
+            dep_string: Dependency specification string
+            
+        Returns:
+            Dependency instance
+            
+        Raises:
+            DependencyError: If string cannot be parsed
+        """
+        try:
+            # Extract extras
+            extras_match = re.match(r'([^[]+)(?:\[(.*)\])?', dep_string)
+            if not extras_match:
+                raise ValueError(f"Invalid dependency format: {dep_string}")
+                
+            name_ver, extras_str = extras_match.groups()
+            extras = {e.strip() for e in extras_str.split(',')} if extras_str else set()
+            
+            # Extract version
+            parts = name_ver.split('>=')
+            name = parts[0].strip()
+            version_spec = f">={parts[1].strip()}" if len(parts) > 1 else None
+            
+            # Validate name
+            name_result = check_package_name(name)
+            if not name_result.is_valid:
+                raise ValueError(f"Invalid package name: {name_result.message}")
+                
+            # Validate version spec if present
+            if version_spec:
+                try:
+                    SpecifierSet(version_spec)
+                except:
+                    raise ValueError(f"Invalid version specifier: {version_spec}")
+            
+            return cls(name, version_spec, extras)
+            
+        except Exception as e:
+            raise DependencyError(f"Failed to parse dependency '{dep_string}': {e}")
+
 @dataclass
 class ProjectMetadata:
     """Essential project metadata from pyproject.toml."""
@@ -35,8 +113,40 @@ class ProjectMetadata:
     version: str
     description: str
     requires_python: str
-    dependencies: List[str]
-    dev_dependencies: List[str]
+    dependencies: List[Dependency] = field(default_factory=list)
+    dev_dependencies: List[Dependency] = field(default_factory=list)
+    
+    def validate(self) -> List[str]:
+        """Validate metadata fields.
+        
+        Returns:
+            List of validation error messages (empty if valid)
+        """
+        errors = []
+        
+        # Validate name
+        name_result = check_package_name(self.name)
+        if not name_result.is_valid:
+            errors.append(f"Invalid project name: {name_result.message}")
+            
+        # Validate version
+        version_result = check_version(self.version)
+        if not version_result.is_valid:
+            errors.append(f"Invalid version: {version_result.message}")
+            
+        # Validate description
+        if self.description:
+            desc_result = validate_description(self.description)
+            if not desc_result.is_valid:
+                errors.append(f"Invalid description: {desc_result.message}")
+                
+        # Validate Python version
+        try:
+            SpecifierSet(self.requires_python)
+        except Exception as e:
+            errors.append(f"Invalid Python version requirement: {e}")
+            
+        return errors
 
 class PyProject:
     """Handle pyproject.toml file operations."""
@@ -68,16 +178,36 @@ class PyProject:
         """
         try:
             project = self.data.get("project", {})
-            return ProjectMetadata(
+            
+            # Parse dependencies
+            deps = [
+                Dependency.from_string(d) 
+                for d in project.get("dependencies", [])
+            ]
+            dev_deps = [
+                Dependency.from_string(d) 
+                for d in project.get("dev-dependencies", [])
+            ]
+            
+            metadata = ProjectMetadata(
                 name=project["name"],
                 version=project.get("version", "0.1.0"),
                 description=project.get("description", ""),
                 requires_python=project.get("requires-python", ">=3.8"),
-                dependencies=project.get("dependencies", []),
-                dev_dependencies=project.get("dev-dependencies", [])
+                dependencies=deps,
+                dev_dependencies=dev_deps
             )
+            
+            # Validate metadata
+            if errors := metadata.validate():
+                raise InvalidProjectError("\n".join(errors))
+                
+            return metadata
+            
         except KeyError as e:
             raise InvalidProjectError(f"Missing required field in pyproject.toml: {e}")
+        except Exception as e:
+            raise InvalidProjectError(f"Invalid project metadata: {e}")
 
     @property
     def scripts(self) -> Dict[str, str]:
@@ -97,22 +227,37 @@ class PyProject:
             description: New project description
             requires_python: New Python version requirement
             
-        The method only updates provided fields, leaving others unchanged.
+        Raises:
+            InvalidProjectError: If updates would make project invalid
         """
         if "project" not in self.data:
             self.data["project"] = {}
             
+        updates = {}
         if version is not None:
-            self.data["project"]["version"] = version
+            if not check_version(version).is_valid:
+                raise InvalidProjectError(f"Invalid version: {version}")
+            updates["version"] = version
+            
         if description is not None:
-            self.data["project"]["description"] = description
+            if not validate_description(description).is_valid:
+                raise InvalidProjectError(f"Invalid description: {description}")
+            updates["description"] = description
+            
         if requires_python is not None:
-            self.data["project"]["requires-python"] = requires_python
+            try:
+                SpecifierSet(requires_python)
+                updates["requires-python"] = requires_python
+            except Exception as e:
+                raise InvalidProjectError(f"Invalid Python version requirement: {e}")
+                
+        self.data["project"].update(updates)
 
     def add_dependency(
         self,
         package: str,
         version: Optional[str] = None,
+        extras: Optional[Set[str]] = None,
         dev: bool = False
     ) -> None:
         """Add a package dependency.
@@ -120,22 +265,33 @@ class PyProject:
         Args:
             package: Package name
             version: Optional version specifier
+            extras: Optional package extras
             dev: Whether this is a development dependency
+            
+        Raises:
+            DependencyError: If dependency is invalid
         """
-        if "project" not in self.data:
-            self.data["project"] = {}
+        try:
+            # Create dependency object for validation
+            dep = Dependency(
+                name=package,
+                version_spec=f">={version}" if version else None,
+                extras=extras or set()
+            )
             
-        dep_type = "dev-dependencies" if dev else "dependencies"
-        if dep_type not in self.data["project"]:
-            self.data["project"][dep_type] = []
-            
-        # Format dependency string
-        dep_str = package
-        if version:
-            dep_str += f">={version}"
-            
-        if dep_str not in self.data["project"][dep_type]:
-            self.data["project"][dep_type].append(dep_str)
+            if "project" not in self.data:
+                self.data["project"] = {}
+                
+            dep_type = "dev-dependencies" if dev else "dependencies"
+            if dep_type not in self.data["project"]:
+                self.data["project"][dep_type] = []
+                
+            dep_str = str(dep)
+            if dep_str not in self.data["project"][dep_type]:
+                self.data["project"][dep_type].append(dep_str)
+                
+        except Exception as e:
+            raise DependencyError(f"Failed to add dependency: {e}")
 
     def add_script(self, name: str, cmd: str) -> None:
         """Add a script entry point.
@@ -143,11 +299,17 @@ class PyProject:
         Args:
             name: Script name
             cmd: Command to run
+            
+        Raises:
+            PyProjectError: If script cannot be added
         """
         if "project" not in self.data:
             self.data["project"] = {}
         if "scripts" not in self.data["project"]:
             self.data["project"]["scripts"] = {}
+            
+        if not name.isidentifier():
+            raise PyProjectError(f"Invalid script name: {name}")
             
         self.data["project"]["scripts"][name] = cmd
 
@@ -171,25 +333,30 @@ class PyProject:
             self.data["build-system"]["build-backend"] = build_backend
 
     def save(self) -> None:
-        """Save changes back to pyproject.toml."""
+        """Save changes back to pyproject.toml.
+        
+        Raises:
+            PyProjectError: If file cannot be saved
+        """
         try:
             # Format with consistent indentation
             toml_str = toml.dumps(self.data)
             
-            # Write using atomic utility
+            # Write atomically
             atomic_write(self.path, toml_str)
-                
-        except Exception as e:
+            
+        except (FileError, toml.TomlDecodeError) as e:
             raise PyProjectError(f"Failed to save {self.path}: {e}")
     
-    @staticmethod
+    @classmethod
     def create_default(
+        cls,
         path: Path,
         name: str,
         version: str = "0.1.0",
         description: str = "",
         python_version: str = ">=3.8"
-    ) -> "PyProject":
+    ) -> 'PyProject':
         """Create a new pyproject.toml with default settings.
         
         Args:
@@ -201,8 +368,28 @@ class PyProject:
             
         Returns:
             New PyProject instance
+            
+        Raises:
+            PyProjectError: If project cannot be created
         """
-        project = PyProject(path)
+        # Validate inputs
+        name_result = check_package_name(name)
+        if not name_result.is_valid:
+            raise PyProjectError(f"Invalid project name: {name_result.message}")
+            
+        version_result = check_version(version)
+        if not version_result.is_valid:
+            raise PyProjectError(f"Invalid version: {version_result.message}")
+            
+        if description and not validate_description(description).is_valid:
+            raise PyProjectError(f"Invalid description: {description}")
+            
+        try:
+            SpecifierSet(python_version)
+        except Exception as e:
+            raise PyProjectError(f"Invalid Python version requirement: {e}")
+        
+        project = cls(path)
         project.data = {
             "project": {
                 "name": name,

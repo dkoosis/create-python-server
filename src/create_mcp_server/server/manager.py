@@ -1,11 +1,11 @@
 """Server lifecycle management.
 
-This module handles server lifecycle including:
-
-- Starting and stopping servers
+This module handles the full server lifecycle including:
+- Server startup and shutdown
 - Health monitoring
-- Port management
 - Process supervision
+- Resource tracking
+- Graceful shutdown
 
 File: create_mcp_server/server/manager.py
 """
@@ -20,16 +20,31 @@ import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Dict, Optional, Set
 
 import aiohttp
-import click
 import psutil
+from aiohttp import ClientError, ClientTimeout
 
-from.config import ServerConfig
-
+from .config import ServerConfig
+from ..utils.process import (
+    ProcessError,
+    TimeoutError,
+    run_background_process,
+    kill_process,
+    wait_for_process
+)
 
 logger = logging.getLogger(__name__)
+
+# Constants
+HEALTH_CHECK_INTERVAL = 30  # seconds
+STATUS_CHECK_INTERVAL = 60  # seconds
+STARTUP_TIMEOUT = 30       # seconds
+SHUTDOWN_TIMEOUT = 5       # seconds
+HEALTH_CHECK_TIMEOUT = 5   # seconds
+MAX_MEMORY_MB = 500       # Maximum memory usage in MB
+MAX_CPU_PERCENT = 80      # Maximum CPU usage percent
 
 class ServerError(Exception):
     """Base exception for server operations."""
@@ -43,6 +58,10 @@ class ServerStopError(ServerError):
     """Raised when server fails to stop."""
     pass
 
+class HealthCheckError(ServerError):
+    """Raised when health check fails."""
+    pass
+
 @dataclass
 class ServerStatus:
     """Server status information."""
@@ -52,7 +71,21 @@ class ServerStatus:
     uptime: Optional[timedelta]
     memory_usage: Optional[float]  # In MB
     cpu_percent: Optional[float]
+    port: int
     error: Optional[str] = None
+
+    def to_dict(self) -> Dict:
+        """Convert status to dictionary."""
+        return {
+            "running": self.running,
+            "pid": self.pid,
+            "start_time": self.start_time.isoformat() if self.start_time else None,
+            "uptime": str(self.uptime) if self.uptime else None,
+            "memory_usage": round(self.memory_usage, 1) if self.memory_usage else None,
+            "cpu_percent": round(self.cpu_percent, 1) if self.cpu_percent else None,
+            "port": self.port,
+            "error": self.error
+        }
 
 class ServerManager:
     """Manages MCP server lifecycle."""
@@ -74,8 +107,43 @@ class ServerManager:
         self.name = name
         self.config = config or ServerConfig(name=name)
         self.process: Optional[subprocess.Popen] = None
+        
+        # Background tasks
         self._health_check_task: Optional[asyncio.Task] = None
         self._status_monitor_task: Optional[asyncio.Task] = None
+        
+        # Track child processes
+        self._child_processes: Set[psutil.Process] = set()
+        
+        # Setup signal handlers
+        self._setup_signal_handlers()
+
+    def __enter__(self) -> 'ServerManager':
+        """Context manager entry."""
+        return self
+
+    async def __aenter__(self) -> 'ServerManager':
+        """Async context manager entry."""
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
+        """Context manager exit."""
+        self.stop()
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:
+        """Async context manager exit."""
+        await self.stop()
+
+    def _setup_signal_handlers(self) -> None:
+        """Setup signal handlers for graceful shutdown."""
+        if sys.platform != "win32":
+            signal.signal(signal.SIGTERM, self._signal_handler)
+            signal.signal(signal.SIGINT, self._signal_handler)
+
+    def _signal_handler(self, signum: int, frame) -> None:
+        """Handle termination signals."""
+        logger.info(f"Received signal {signum}")
+        asyncio.create_task(self.stop())
 
     async def start(self) -> None:
         """Start the server.
@@ -91,26 +159,32 @@ class ServerManager:
         if not await self._is_port_available(self.config.port):
             raise ServerStartError(f"Port {self.config.port} is already in use")
 
-        # Prepare environment
-        env = os.environ.copy()
-        env.update({
-            "MCP_SERVER_PORT": str(self.config.port),
-            "MCP_SERVER_HOST": self.config.host,
-            "MCP_LOG_LEVEL": self.config.log_level.value,
-        })
-
         try:
+            # Prepare environment
+            env = os.environ.copy()
+            env.update({
+                "MCP_SERVER_PORT": str(self.config.port),
+                "MCP_SERVER_HOST": self.config.host,
+                "MCP_LOG_LEVEL": self.config.log_level.value,
+            })
+
             # Start server process
-            self.process = subprocess.Popen(
-                ["uv", "run", self.name],
+            self.process = run_background_process(
+                ["uv", "run", "uvicorn",
+                 f"{self.name}.server:app",
+                 "--host", self.config.host,
+                 "--port", str(self.config.port),
+                 "--reload" if self.config.reload else "",
+                 "--log-level", self.config.log_level.value.lower()],
                 cwd=self.path,
-                env=env,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True
+                env=env
             )
             
-            logger.info(f"Starting server {self.name} (PID: {self.process.pid})")
+            logger.info(
+                f"Starting server {self.name} on "
+                f"{self.config.host}:{self.config.port} "
+                f"(PID: {self.process.pid})"
+            )
             
             # Wait for server to start
             await self._wait_for_startup()
@@ -123,11 +197,7 @@ class ServerManager:
             raise ServerStartError(f"Failed to start server: {e}")
 
     async def stop(self) -> None:
-        """Stop the server gracefully.
-        
-        Raises:
-            ServerStopError: If server cannot be stopped
-        """
+        """Stop the server gracefully."""
         if not self.process:
             return
 
@@ -137,58 +207,65 @@ class ServerManager:
         self._stop_monitoring()
 
         try:
-            # Try graceful shutdown first
-            self.process.terminate()
-            try:
-                await asyncio.wait_for(
-                    asyncio.create_subprocess_exec(
-                        *[sys.executable, "-c", ""],
-                        stdout=subprocess.DEVNULL,
-                        stderr=subprocess.DEVNULL,
-                    ),
-                    timeout=5.0
-                )
-            except asyncio.TimeoutError:
-                logger.warning("Server did not stop gracefully, forcing...")
-                self.process.kill()
-                
-            await asyncio.sleep(0.1)  # Brief pause
+            # Stop child processes first
+            for proc in self._child_processes:
+                try:
+                    proc.terminate()
+                except psutil.NoSuchProcess:
+                    pass
+                    
+            # Wait for child processes
+            psutil.wait_procs(
+                list(self._child_processes),
+                timeout=SHUTDOWN_TIMEOUT
+            )
             
-            if self.process.poll() is None:
-                raise ServerStopError("Failed to stop server process")
+            # Stop main process
+            kill_process(self.process, timeout=SHUTDOWN_TIMEOUT)
                 
+        except Exception as e:
+            raise ServerStopError(f"Failed to stop server: {e}")
         finally:
             self.process = None
+            self._child_processes.clear()
 
     async def restart(self) -> None:
-        """Restart the server."""
+        """Restart the server gracefully."""
         await self.stop()
         await self.start()
 
     async def get_status(self) -> ServerStatus:
-        """Get current server status."""
-        if not self.process:
+        """Get current server status.
+        
+        Returns:
+            ServerStatus object with current metrics
+        """
+        if not self.process or self.process.poll() is not None:
             return ServerStatus(
                 running=False,
                 pid=None,
                 start_time=None,
                 uptime=None,
                 memory_usage=None,
-                cpu_percent=None
+                cpu_percent=None,
+                port=self.config.port
             )
 
         try:
             proc = psutil.Process(self.process.pid)
+            start_time = datetime.fromtimestamp(proc.create_time())
             
             return ServerStatus(
-                running=proc.is_running(),
-                pid=proc.pid,
-                start_time=datetime.fromtimestamp(proc.create_time()),
-                uptime=datetime.now() - datetime.fromtimestamp(proc.create_time()),
-                memory_usage=proc.memory_info().rss / 1024 / 1024,  # Convert to MB
-                cpu_percent=proc.cpu_percent()
+                running=True,
+                pid=self.process.pid,
+                start_time=start_time,
+                uptime=datetime.now() - start_time,
+                memory_usage=proc.memory_info().rss / 1024 / 1024,
+                cpu_percent=proc.cpu_percent(),
+                port=self.config.port
             )
-        except Exception as e:
+            
+        except (psutil.NoSuchProcess, psutil.AccessDenied) as e:
             return ServerStatus(
                 running=False,
                 pid=self.process.pid,
@@ -196,37 +273,54 @@ class ServerManager:
                 uptime=None,
                 memory_usage=None,
                 cpu_percent=None,
+                port=self.config.port,
                 error=str(e)
             )
 
-    async def _wait_for_startup(self, timeout: int = 30, check_interval: float = 0.5) -> None:
-        """Wait for server to start and verify it's running.
+    async def _is_port_available(self, port: int) -> bool:
+        """Check if a port is available.
         
         Args:
-            timeout: Maximum seconds to wait
-            check_interval: Seconds between health checks
+            port: Port number to check
             
+        Returns:
+            True if port is available, False if in use
+        """
+        timeout = ClientTimeout(total=1)
+        try:
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                async with session.get(
+                    f"http://localhost:{port}/health"
+                ) as _:
+                    return False  # Port is in use
+        except:
+            return True
+
+    async def _wait_for_startup(self) -> None:
+        """Wait for server to start and verify it's running.
+        
         Raises:
             ServerStartError: If server fails to start within timeout
         """
         start_time = time.time()
         last_error = None
+        health_check_url = f"http://{self.config.host}:{self.config.port}/health"
         
-        while (time.time() - start_time) < timeout:
+        timeout = ClientTimeout(total=HEALTH_CHECK_TIMEOUT)
+        
+        while (time.time() - start_time) < STARTUP_TIMEOUT:
             # Check if process died
             if self.process.poll() is not None:
                 stdout, stderr = self.process.communicate()
                 raise ServerStartError(
-                    f"Server process terminated:\nstdout: {stdout}\nstderr: {stderr}"
+                    f"Server process terminated unexpectedly:\n"
+                    f"stdout: {stdout}\nstderr: {stderr}"
                 )
 
             # Check health endpoint
             try:
-                async with aiohttp.ClientSession() as session:
-                    async with session.get(
-                        f"http://{self.config.host}:{self.config.port}/health",
-                        timeout=1
-                    ) as response:
+                async with aiohttp.ClientSession(timeout=timeout) as session:
+                    async with session.get(health_check_url) as response:
                         if response.status == 200:
                             logger.info(f"Server {self.name} started successfully")
                             return
@@ -234,30 +328,22 @@ class ServerManager:
             except Exception as e:
                 last_error = str(e)
 
-            await asyncio.sleep(check_interval)
+            await asyncio.sleep(0.5)
 
         raise ServerStartError(
-            f"Server failed to start within {timeout} seconds: {last_error}"
+            f"Server failed to start within {STARTUP_TIMEOUT} seconds: {last_error}"
         )
-
-    async def _is_port_available(self, port: int) -> bool:
-        """Check if a port is available."""
-        try:
-            async with aiohttp.ClientSession() as session:
-                async with session.get(
-                    f"http://localhost:{port}",
-                    timeout=0.1
-                ) as _:
-                    return False
-        except:
-            return True
 
     def _start_monitoring(self) -> None:
         """Start background monitoring tasks."""
         if not self._health_check_task:
-            self._health_check_task = asyncio.create_task(self._health_check_loop())
+            self._health_check_task = asyncio.create_task(
+                self._health_check_loop()
+            )
         if not self._status_monitor_task:
-            self._status_monitor_task = asyncio.create_task(self._status_monitor_loop())
+            self._status_monitor_task = asyncio.create_task(
+                self._status_monitor_loop()
+            )
 
     def _stop_monitoring(self) -> None:
         """Stop background monitoring tasks."""
@@ -270,72 +356,58 @@ class ServerManager:
 
     async def _health_check_loop(self) -> None:
         """Periodic health check loop."""
+        health_check_url = f"http://{self.config.host}:{self.config.port}/health"
+        timeout = ClientTimeout(total=HEALTH_CHECK_TIMEOUT)
+        
         while True:
             try:
-                async with aiohttp.ClientSession() as session:
-                    async with session.get(
-                        f"http://{self.config.host}:{self.config.port}/health"
-                    ) as response:
+                async with aiohttp.ClientSession(timeout=timeout) as session:
+                    async with session.get(health_check_url) as response:
                         if response.status != 200:
                             logger.warning(
-                                f"Server health check failed: {response.status}"
+                                f"Health check failed: {response.status}"
                             )
+                            await self._handle_health_failure("Bad status")
             except Exception as e:
                 logger.error(f"Health check failed: {e}")
+                await self._handle_health_failure(str(e))
             
-            await asyncio.sleep(30)  # Check every 30 seconds
+            await asyncio.sleep(HEALTH_CHECK_INTERVAL)
 
     async def _status_monitor_loop(self) -> None:
         """Periodic status monitoring loop."""
         while True:
             try:
                 status = await self.get_status()
-                if status.error:
-                    logger.warning(f"Status check error: {status.error}")
-                elif status.memory_usage and status.memory_usage > 500:  # 500MB
-                    logger.warning(f"High memory usage: {status.memory_usage:.1f}MB")
+                
+                # Check memory usage
+                if status.memory_usage and status.memory_usage > MAX_MEMORY_MB:
+                    logger.warning(
+                        f"High memory usage: {status.memory_usage:.1f}MB"
+                    )
+                    
+                # Check CPU usage
+                if status.cpu_percent and status.cpu_percent > MAX_CPU_PERCENT:
+                    logger.warning(
+                        f"High CPU usage: {status.cpu_percent:.1f}%"
+                    )
+                    
             except Exception as e:
                 logger.error(f"Status monitoring failed: {e}")
             
-            await asyncio.sleep(60)  # Check every minute
+            await asyncio.sleep(STATUS_CHECK_INTERVAL)
 
-def start_server(path: Path, name: str) -> None:
-    """Start an MCP server from command line.
-    
-    Args:
-        path: Path to server installation
-        name: Server name
-    """
-    click.echo(f"\nStarting {name} server...")
-    
-    try:
-        manager = ServerManager(path, name)
+    async def _handle_health_failure(self, reason: str) -> None:
+        """Handle health check failure.
         
-        # Create event loop and run server
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
+        Args:
+            reason: Failure reason
+        """
+        logger.error(f"Health check failed: {reason}")
         
-        try:
-            loop.run_until_complete(manager.start())
-            
-            click.echo("✅ Server started successfully")
-            click.echo("\nServer endpoints (default):")
-            click.echo("  Health check: http://localhost:8000/health")
-            click.echo("  API docs: http://localhost:8000/docs")
-            
-            # Handle Ctrl+C gracefully
-            def signal_handler():
-                click.echo("\nStopping server...")
-                loop.run_until_complete(manager.stop())
-                click.echo("Server stopped.")
-                loop.stop()
-            
-            loop.add_signal_handler(signal.SIGINT, signal_handler)
-            loop.run_forever()
-            
-        finally:
-            loop.close()
-            
-    except Exception as e:
-        click.echo(f"❌ Failed to start server: {e}", err=True)
-        sys.exit(1)
+        # Could implement recovery logic here, e.g.:
+        # - Restart server
+        # - Notify monitoring system
+        # - Write to error log
+        # For now, just log the error
+        pass
