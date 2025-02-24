@@ -1,12 +1,10 @@
-/Users/davidkoosis/projects/create_mcp_server
+.
 ├── CODE_OF_CONDUCT.md
 ├── CONTRIBUTING.md
 ├── LICENSE
 ├── README.md
 ├── SECURITY.md
-├── check_imports.py
-├── check_imports.txt
-├── check_imports_errors.txt
+├── dev.py
 ├── mcp_venv
 │   ├── bin
 │   │   ├── Activate.ps1
@@ -981,7 +979,6 @@
 │   └── pyvenv.cfg
 ├── pyproject.toml
 ├── readme.txt
-├── setup_mcp.sh
 ├── src
 │   └── create_mcp_server
 │       ├── __init__.py
@@ -993,6 +990,7 @@
 │       │   ├── __init__.py
 │       │   ├── __pycache__
 │       │   │   ├── __init__.cpython-313.pyc
+│       │   │   ├── commands.cpython-313.pyc
 │       │   │   ├── main.cpython-313.pyc
 │       │   │   └── prompts.cpython-313.pyc
 │       │   ├── commands.py
@@ -1020,11 +1018,15 @@
 │       │   ├── config.py.jinja2
 │       │   ├── core.py.jinja2
 │       │   ├── plugins
-│       │   │   └── example.py.jinja2
+│       │   │   ├── example.py.jinja2
+│       │   │   └── plugins.py
 │       │   ├── server.py.jinja2
 │       │   ├── test_plugins.py.jinja2
 │       │   └── tests
 │       │       └── test_server.jinja2
+│       ├── tests
+│       │   └── utils
+│       │       └── test_setup.py
 │       └── utils
 │           ├── __init__.py
 │           ├── __pycache__
@@ -1036,8 +1038,9 @@
 │           ├── claude.py
 │           ├── files.py
 │           ├── process.py
+│           ├── setup.py
 │           └── validation.py
 ├── tree.txt
 └── uv.lock
 
-125 directories, 916 files
+127 directories, 917 files

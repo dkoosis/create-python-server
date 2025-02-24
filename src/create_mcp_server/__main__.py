@@ -1,15 +1,12 @@
-"""
-Entry point for the `create_mcp_server` package.
+"""Main entry point for create_mcp_server CLI.
 
-This file allows the package to be executed as a module using the command:
+File: /Users/davidkoosis/projects/create_mcp_server/src/create_mcp_server/__main__.py
 
-    python -m create_mcp_server
-
-It imports and calls the `cli` function from `create_mcp_server.cli.main`,
-which handles the command-line interface.
+This module serves as the entry point when the package is run directly with
+`python -m create_mcp_server` or when installed as a console script.
 """
 
-from.cli.main import cli
+from .cli.commands import cli
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     cli()

@@ -20,12 +20,13 @@ from typing import Optional
 
 import click
 
-from ..claude import has_claude_app, update_claude_config 
-from ..core.project import PyProject
-from ..server.config import ServerConfig
-from ..server.manager import ServerManager
-from ..utils.setup import ProjectSetup, SetupError
-from ..utils.prompts import (
+from create_mcp_server.claude import has_claude_app, update_claude_config
+from create_mcp_server.claude import has_claude_app, update_claude_config
+from create_mcp_server.core.project import PyProject
+from create_mcp_server.server.config import ServerConfig
+from create_mcp_server.server.manager import ServerManager
+from create_mcp_server.utils.setup import ProjectSetup, SetupError
+from create_mcp_server.utils.prompts import (
     prompt_project_name,
     prompt_project_version,
     prompt_project_path,
@@ -60,56 +61,86 @@ def cli(debug: bool) -> None:
 @click.option('--description', type=str, help="Project description")
 @click.option('--claudeapp/--no-claudeapp', default=True, 
               help="Enable/disable Claude.app integration")
+@cli.command()
+@click.option('--path', type=click.Path(path_type=Path), help="Project directory")
+@click.option('--name', type=str, help="Project name")
+@click.option('--version', type=str, help="Server version")
+@click.option('--description', type=str, help="Project description")
+@click.option('--claudeapp/--no-claudeapp', default=True, 
+              help="Enable/disable Claude.app integration")
+@click.option('--autostart/--no-autostart', default=True,
+              help="Automatically start server after creation")
 def create(
     path: Optional[Path],
     name: Optional[str],
     version: Optional[str],
     description: Optional[str],
-    claudeapp: bool
+    claudeapp: bool,
+    autostart: bool
 ) -> None:
-    """Create a new MCP server project."""
+    """Create and optionally start a new MCP server."""
     try:
-        # Get project details through prompts if not provided
-        name = name or prompt_project_name()
-        version = version or prompt_project_version()
-        description = description or click.prompt(
-            "Project description",
-            default="An MCP server"
+        # Get project name
+        name = name or click.prompt("Project name", type=str)
+        if not name:
+            raise click.UsageError("Project name is required")
+
+        # Get parent directory and create project path
+        parent_dir = path or Path.cwd().parent
+        project_path = parent_dir / name
+        click.echo(f"\nCreating server in: {project_path}")
+        
+        # Get other details with defaults
+        version = version or "0.1.0"
+        description = description or "MCP Server"
+        
+        # Initialize server config with defaults
+        config = ServerConfig(
+            name=name,
+            version=version,
+            description=description,
+            host="127.0.0.1",
+            port=8000
         )
-        path = path or prompt_project_path(name)
-
-        # Initialize server config
-        config = prompt_server_config(name, version, description)
-
-        # Confirm creation
-        if not confirm_project_creation(path, config):
-            click.echo("Project creation cancelled.")
-            sys.exit(EXIT_OK)
 
         # Create and run setup
         setup = ProjectSetup(
-            project_path=path,
+            project_path=project_path,
             name=name,
             version=version,
             description=description,
             config=config
         )
 
-        try:
-            setup.run()
-        except SetupError as e:
-            click.echo(f"❌ Project setup failed: {e}", err=True)
-            sys.exit(EXIT_SETUP_ERROR)
+        click.echo("\nSetting up project...")
+        setup.run()
 
         # Handle Claude.app integration
         if claudeapp and has_claude_app():
-            if click.confirm("Register with Claude.app?", default=True):
-                update_claude_config(name, path)
+            if click.confirm("\nRegister with Claude.app?", default=True):
+                update_claude_config(name, project_path)
 
-        click.echo(f"✅ Created project {name} in {path}")
-        click.echo("\nNext steps:")
-        click.echo("  1. cd " + str(path))
-        click.echo("  2. create_mcp_server start")
+        click.echo(f"\n✅ Created project {name} in {project_path}")
+
+        # Automatically start server if requested
+        if autostart:
+            click.echo("\nStarting server...")
+            server = ServerManager(project_path, name, config)
+            server.start()
+            click.echo("\n✅ Server is running!")
+            click.echo(f"\nAPI documentation: http://{config.host}:{config.port}/docs")
+            click.echo(f"Health check: http://{config.host}:{config.port}/health")
+            click.echo("\nPress Ctrl+C to stop the server")
+            
+            try:
+                # Keep the process running
+                import time
+                while True:
+                    time.sleep(1)
+            except KeyboardInterrupt:
+                click.echo("\nStopping server...")
+                server.stop()
+                click.echo("Server stopped.")
 
     except click.Abort:
         click.echo("\nOperation cancelled.")

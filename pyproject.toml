@@ -1,6 +1,4 @@
-# File: create_mcp_server/pyproject.toml
-# Configuration for create_mcp_server - a tool that generates MCP server projects.
-# This is the configuration for the generator tool itself, not for the servers it creates.
+# File: /Users/davidkoosis/projects/create_mcp_server/pyproject.toml
 
 [project]
 name = "create_mcp_server"
@@ -26,8 +24,8 @@ dependencies = [
     "jinja2>=3.1.4",
     "packaging>=24.2",
     "toml>=0.10.2",
-    "psutil>=5.9.0",  # Added for process monitoring
-    "aiohttp>=3.9.0"  # Added for health checks
+    "psutil>=5.9.0",
+    "aiohttp>=3.9.0"
 ]
 
 [project.optional-dependencies]
@@ -38,12 +36,11 @@ dev = [
 ]
 
 [project.scripts]
-create_mcp_server = "create_mcp_server.cli.main:cli"
-start_mcp_server = "create_mcp_server.cli.main:start"
+create_mcp_server = "create_mcp_server.cli.commands:cli"
 
 [project.urls]
 Homepage = "https://modelcontextprotocol.io"
-Repository = "https://github.com/modelcontextprotocol/create-python-server"
+Repository = "https://github.com/dkoosis/create_mcp_server"
 
 [build-system]
 requires = ["hatchling"]
