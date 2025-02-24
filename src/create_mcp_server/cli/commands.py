@@ -15,14 +15,16 @@ Key commands:
 
 import logging
 import sys
+import subprocess
 from pathlib import Path
 from typing import Optional
 
 import click
+import toml
 
 from create_mcp_server.claude import has_claude_app, update_claude_config
-from create_mcp_server.claude import has_claude_app, update_claude_config
 from create_mcp_server.core.project import PyProject
+from create_mcp_server.core.template import ServerTemplate
 from create_mcp_server.server.config import ServerConfig
 from create_mcp_server.server.manager import ServerManager
 from create_mcp_server.utils.setup import ProjectSetup, SetupError
@@ -55,99 +57,70 @@ def cli(debug: bool) -> None:
     logging.basicConfig(level=log_level)
 
 @cli.command()
-@click.option('--path', type=click.Path(path_type=Path), help="Project directory")
-@click.option('--name', type=str, help="Project name")
-@click.option('--version', type=str, help="Server version")
-@click.option('--description', type=str, help="Project description")
-@click.option('--claudeapp/--no-claudeapp', default=True, 
-              help="Enable/disable Claude.app integration")
-@cli.command()
-@click.option('--path', type=click.Path(path_type=Path), help="Project directory")
-@click.option('--name', type=str, help="Project name")
-@click.option('--version', type=str, help="Server version")
-@click.option('--description', type=str, help="Project description")
-@click.option('--claudeapp/--no-claudeapp', default=True, 
-              help="Enable/disable Claude.app integration")
-@click.option('--autostart/--no-autostart', default=True,
-              help="Automatically start server after creation")
-def create(
-    path: Optional[Path],
-    name: Optional[str],
-    version: Optional[str],
-    description: Optional[str],
-    claudeapp: bool,
-    autostart: bool
-) -> None:
-    """Create and optionally start a new MCP server."""
+@click.argument('name', required=False)
+@click.option('--path', type=click.Path(path_type=Path), help='Project directory')
+@click.option('--version', type=str, help='Server version')
+@click.option('--description', type=str, help='Project description')
+@click.option('--claudeapp/--no-claudeapp', default=True, help='Enable/disable Claude.app integration')
+def create(name: Optional[str], path: Optional[Path], version: Optional[str], description: Optional[str], claudeapp: bool) -> None:
+    """Create a new MCP server."""
     try:
-        # Get project name
+        # Get project name, either from argument or prompt
         name = name or click.prompt("Project name", type=str)
         if not name:
             raise click.UsageError("Project name is required")
 
         # Get parent directory and create project path
-        parent_dir = path or Path.cwd().parent
+        parent_dir = path or Path.cwd()
         project_path = parent_dir / name
-        click.echo(f"\nCreating server in: {project_path}")
-        
-        # Get other details with defaults
-        version = version or "0.1.0"
-        description = description or "MCP Server"
-        
-        # Initialize server config with defaults
-        config = ServerConfig(
-            name=name,
-            version=version,
-            description=description,
-            host="127.0.0.1",
-            port=8000
-        )
 
-        # Create and run setup
-        setup = ProjectSetup(
-            project_path=project_path,
-            name=name,
-            version=version,
-            description=description,
-            config=config
-        )
+        # Check if the directory already exists
+        if project_path.exists():
+            if not click.confirm(f"Directory '{project_path}' already exists. Overwrite?"):
+                raise click.Abort()
 
-        click.echo("\nSetting up project...")
-        setup.run()
+        # Create the project directory
+        project_path.mkdir(parents=True, exist_ok=True)
 
-        # Handle Claude.app integration
-        if claudeapp and has_claude_app():
-            if click.confirm("\nRegister with Claude.app?", default=True):
-                update_claude_config(name, project_path)
+        # Create virtual environment
+        subprocess.run(['uv', 'venv'], cwd=project_path, check=True)
 
-        click.echo(f"\n✅ Created project {name} in {project_path}")
+        # Install dependencies (prompt for confirmation)
+        if click.confirm("Install dependencies (fastapi, uvicorn, jinja2, toml, python-dotenv)?"):
+            subprocess.run(['uv', 'pip', 'install', 'fastapi', 'uvicorn', 'jinja2', 'toml', 'python-dotenv'], cwd=project_path, check=True)
 
-        # Automatically start server if requested
-        if autostart:
-            click.echo("\nStarting server...")
-            server = ServerManager(project_path, name, config)
-            server.start()
-            click.echo("\n✅ Server is running!")
-            click.echo(f"\nAPI documentation: http://{config.host}:{config.port}/docs")
-            click.echo(f"Health check: http://{config.host}:{config.port}/health")
-            click.echo("\nPress Ctrl+C to stop the server")
-            
-            try:
-                # Keep the process running
-                import time
-                while True:
-                    time.sleep(1)
-            except KeyboardInterrupt:
-                click.echo("\nStopping server...")
-                server.stop()
-                click.echo("Server stopped.")
+        # Parse pyproject.toml
+        pyproject = PyProject(project_path / 'pyproject.toml')
+        package_name = pyproject.metadata.name
 
-    except click.Abort:
-        click.echo("\nOperation cancelled.")
-        sys.exit(EXIT_OK)
+        # Generate project files
+        template = ServerTemplate()
+        template.create_server(project_path, ServerConfig(name=name), project_path / 'src' / package_name)
+
+        # Start the server
+        subprocess.run(['uv', 'run', 'uvicorn', f'{package_name}.main:app', '--reload'], cwd=project_path, check=True)
+
+        # Print instructions
+        click.echo(f"\n✅ Created project '{name}' in '{project_path}'")
+        click.echo("\n✅ Server is running!")
+        click.echo("\nPress Ctrl+C to stop the server")
+
+    except FileExistsError:
+        click.echo(f"❌ Error: Directory '{project_path}' already exists. Please choose a different name or location.", err=True)
+        sys.exit(1)
+    except subprocess.CalledProcessError as e:
+        click.echo(f"❌ Error: Failed to execute command: {e.cmd}", err=True)
+        click.echo(e.stderr, err=True)
+        sys.exit(1)
+    except toml.TomlDecodeError as e:
+        click.echo(f"❌ Error: Failed to parse 'pyproject.toml': {e}", err=True)
+        sys.exit(1)
+    except FileNotFoundError as e:
+        click.echo(f"❌ Error: File not found: {e.filename}", err=True)
+        sys.exit(1)
     except Exception as e:
         click.echo(f"❌ Error: {e}", err=True)
-        sys.exit(EXIT_RUNTIME_ERROR)
+        sys.exit(1)
 
 @cli.command(name='check-imports')
 @click.argument('path', type=click.Path(exists=True, path_type=Path))
